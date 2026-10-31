@@ -49,11 +49,11 @@ Collector output on docker-nuc not yet pasted for either machine.
 | 19 | Collector shows the data points | yes | yes | docker-nuc, otelcol 0.111.0 debug exporter: every export from both machines decoded — x86 at 20:17:56 and 20:17:57 (http, https), 21:28:28 ×2, 21:28:42–43 ×2; I64 at 21:40:58 ×2 and 21:47:22 ×2. Each: `resource metrics: 1, metrics: 2, data points: 2`, resource `host.name: Str(x86vms.issinoho.com)` / `Str(myi64.issinoho.com)`, `os.type: Str(openvms)`; `vmsotel.probe.heartbeat` as `Gauge`, `vmsotel.probe.exports` as `Sum`, `IsMonotonic: true`, `AggregationTemporality: Cumulative`, attribute `vmsotel.transport: Str(http)` / `Str(https)`. **Answered on both** |
 | 20 | libssl image name and family found | SSL3 | SSL3 | x86: `OpenSSL: SYS$LIBRARY:SSL3$LIBSSL_SHR32, SYS$LIBRARY:SSL3$LIBCRYPTO_SHR32, headers SSL3$INCLUDE`; `OpenSSL 3.0.21 9 Jun 2026`. I64: `SYS$LIBRARY:SSL3$LIBSSL_SHR32 …`, `OpenSSL 3.0.22 25 Aug 2026`. **Answered on both** |
 | 21 | TLS handshake; version and cipher | yes | yes | x86: `negotiated TLSv1.3, TLS_AES_128_GCM_SHA256`, then HTTP 200. I64: `TLSv1.3, TLS_AES_128_GCM_SHA256`, HTTP 200. **Answered on both** |
-| 22 | Certificate verifies with `--cafile` | | | optional, not run; `build_vms RUN` with `collector.crt` present answers it |
-| 23 | `SYI$_MEMSIZE`, `RMI$_FRLIST`, `RMI$_MODLIST`: pages or pagelets | | | `build_vms SELFTEST`: the self-test's raw values beside `SHOW MEMORY/PHYSICAL`. Until answered, the agent sends no memory metrics |
-| 24 | `SYI$_PAGEFILE_PAGE`, `_FREE`: pages or pagelets | | | the same run, beside `SHOW MEMORY/FILES`. Until answered, no `system.paging.usage` |
-| 25 | The agent builds, links clean, and its self-test matches SHOW and MONITOR | | | `build_vms SELFTEST` |
-| 26 | The agent's exports reach the collector from VMS | | | `build_vms RUN`, with the collector's output on docker-nuc |
+| 22 | Certificate verifies with `--cafile` | not run | | optional, not run; `build_vms RUN` with `collector.crt` present answers it. x86 2c run: `TLS run skipped: needs collector.crt here` |
+| 23 | `SYI$_MEMSIZE`, `RMI$_FRLIST`, `RMI$_MODLIST`: pages or pagelets | **pages** | | `build_vms SELFTEST`: the self-test's raw values beside `SHOW MEMORY/PHYSICAL`. Until answered, the agent sends no memory metrics. x86 2c self-test against SHOW MEMORY/PHYSICAL (pages), 5 s apart: `SYI$_MEMSIZE 930264` = `Total 930264` (`Main Memory (7.09GB)` = 930264 × 8192); `RMI$_FRLIST 696387` vs `Free 696389`; `RMI$_MODLIST 24836` vs `Modified 24830`; MONITOR PAGE `Free List Size 696361`, `Modified List Size 24828` |
+| 24 | `SYI$_PAGEFILE_PAGE`, `_FREE`: pages or pagelets | **pages** | | the same run, beside `SHOW MEMORY/FILES`. Until answered, no `system.paging.usage`. x86: `SYI$_PAGEFILE_PAGE 233216` = SHOW MEMORY/FILES `Total size of all paging files: 233216` (`8KB pages`); `SYI$_PAGEFILE_FREE 233216` = `Free` 172688 + 60528. Note `Total committed paging file usage: 61612`: FREE is space not yet written, not uncommitted space |
+| 25 | The agent builds, links clean, and its self-test matches SHOW and MONITOR | yes | | `build_vms SELFTEST`. x86: `built: vmsotel.exe vmsotel_tls.exe`, no warnings; self-test `self-test read everything`. CPU `99.7` ticks per CPU-second, idle 99.6% vs MONITOR MODES `Idle Time 197.72` of 200; buffered I/O `5.8`/s vs MONITOR IO `5.83`; disks `19981008`, `1127520`, `7331072` = SHOW DEVICE D exactly, memory disk LDM2585 skipped; interrupt `WENT BACKWARDS (-28)`; uptime `8 06:16:08` vs SHOW SYSTEM `8 07:14:58`, the expected hour (agent started after the summer-time change) |
+| 26 | The agent's exports reach the collector from VMS | yes | | `build_vms RUN`, with the collector's output on docker-nuc. x86 `RUN`: `done: 3 collections, 3 sent, 0 failed attempts, 0 dropped`, and `CLOCK: this system is 8 s behind the collector`. Collector side not yet pasted |
 
 ## Surprises
 
@@ -126,6 +126,10 @@ what it changes in the design.
   of `[CODE]`, and WORLD has no access. After `SET SECURITY/OWNER=[IAIN]`
   it read `[CYGNET,IAIN]` and the unprivileged run worked. For the
   agent: its install must set owner and protection explicitly.
+- **x86, 2c self-test: the HIB excess varies.** `cur 1 lef 13 hib 29`
+  against MONITOR STATES `Hibernate 26`, `Local Event Flag Wait 13`,
+  `Current Process 1` a few seconds later: three extra HIB this time,
+  two before. Still x86 only.
 - **I64: `$GETRMI` state counts match MONITOR STATES exactly.** Second
   sample `LEF 15`, `HIB 26`, `CUR 1`; MONITOR STATES `15`, `26`, `1`;
   SHOW SYSTEM 15 LEF, 26 HIB, 1 CUR, 42 lines. Run 2 again: `CUR 1`,
