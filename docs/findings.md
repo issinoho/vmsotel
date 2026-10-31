@@ -15,6 +15,8 @@ Runs so far, all **x86, 2026-10-31**, user IAIN:
    `Process privileges: NETMBX TMPMBX` only.
 4. ~21:34, `probe_rmi` alone from 2eacec7, privileged (4a) and in a
    NETMBX/TMPMBX subprocess (4b).
+5. ~21:38, `probe_rmi` alone from 448033c (longword return length),
+   privileged; then `MONITOR STATES/SUMMARY` for 5 s.
 
 Collector output on docker-nuc not yet pasted.
 
@@ -26,8 +28,8 @@ Collector output on docker-nuc not yet pasted.
 | 4 | `SYI$_` items: which are declared, which accepted | all but one | | x86: every item accepted except `SYI$_FREE_PAGES  not declared in <syidef.h>`. Not needed: free memory comes from `RMI$_FRLIST`. `HW_MODEL` 2 bytes, `CLUSTER_MEMBER` 1, `CLUSTER_NODES` 2, `MAXPROCESSCNT` 2 — not all longwords |
 | 5 | `time()` is UTC | not settled | | x86: `time()` = `$GETTIM` = `$GETTIM minus differential` = `2026-10-31T20:17:43Z`, but the differential is 0 (GMT), so local time and UTC are the same and this cannot tell them apart. Needs a run while a nonzero differential is in force |
 | 6 | `SYS$TIMEZONE_DIFFERENTIAL` defined and correct | defined | | x86: `SYS$TIMEZONE_DIFFERENTIAL  0`, `SYS$TIMEZONE_NAME  GMT`. Correct for UK winter; see Surprises on boot time |
-| 7 | `RMI$_` items: declared, accepted, byte size | all 38 | | x86 run 4: every item declared and accepted. **Quadword** (accepts len 8, `retlen 8`): the eight `CPU*` modes, `FRLIST`, `MODLIST`. **Longword only** (len 8 → `queue 00000014` = SS$_BADPARAM, len 4 → `retlen 4`): everything else, including `PROCS`. Runs 1–3 crashed: see Surprises, return length |
-| 8 | CPU mode counters are 10 ms ticks summed over CPUs | yes | | x86 run 4a: `sum of deltas 1012 over 5.18 s` = `97.7 units per second per active CPU`, 2 CPUs; 4b `97.3`. That sum includes `CPUINTSTK`'s negative delta (−14, −20); without it 99.0 and 99.2. `CPUINTSTK` is not usable: see Surprises |
+| 7 | `RMI$_` items: declared, accepted, byte size | all 38 | | x86 run 4: every item declared and accepted. **Quadword** (accepts len 8, `retlen 8`): the eight `CPU*` modes, `FRLIST`, `MODLIST`. **Longword only** (len 8 → `queue 00000014` = SS$_BADPARAM, len 4 → `retlen 4`): everything else, including `PROCS`. Runs 1–3 crashed: see Surprises, return length. Run 5, with a longword return length: no `GUARD changed` line for any item |
+| 8 | CPU mode counters are 10 ms ticks summed over CPUs | yes | | x86 run 4a: `sum of deltas 1012 over 5.18 s` = `97.7 units per second per active CPU`, 2 CPUs; 4b `97.3`. That sum includes `CPUINTSTK`'s negative delta (−14, −20); without it 99.0 and 99.2. Run 5, which leaves it out: `7 mode items accepted, sum of deltas 1006 over 5.08 s` = `99.0`. `CPUINTSTK` is not usable: see Surprises |
 | 9 | `$GETRMI` works unprivileged | **yes** | | x86 run 4b (NETMBX, TMPMBX): every item `ok`, same sizes and plausible values as 4a |
 | 10 | Which `RMI$_` items are counters and which gauges | see notes | | x86 run 4, by size and 5 s delta. **Counters**: `CPU*` (except `CPUINTSTK`), `FAULTS`, `PREADS`, `PWRITES`, `PREADIO`, `PWRITIO`, `GVALFLTS`, `DZROFLTS`, `TRANSFLTS`, `DIRIO`, `BUFIO` (`645065712 → 645068377`), `MBREADS`, `MBWRITES`; `SYSFAULTS`, `ISWPCNT` were 0. **Gauges**: `PROCS` (39/40), `FRLIST` (`+12`), `MODLIST`, and the state counts `COM` … `CEF` (`LEF 14 → 13`). `BUFIO` at 6.45 × 10⁸ after 8.2 days (≈ 78 M a day) wraps its longword about 7 weeks from now |
 | 11 | `JPI$_PPGCNT`/`GPGCNT` are pages or pagelets | **pagelets** | | x86: `MARIADBD_3306 … 209664` vs SHOW SYSTEM Pages `13104`; `LTPHP_19000 62464` vs `3904`. Ratio exactly 16 = 8192 / 512. SHOW SYSTEM's column is pages |
@@ -95,9 +97,14 @@ what it changes in the design.
   reported as a cumulative sum. Perhaps interrupt time on x86 is
   derived by subtraction and underflows, or it is meant as signed;
   either way interrupt time needs another source, or is dropped.
-- **x86: `$GETRMI` state counts do not add up to `PROCS`.** Run 4a
-  second sample: `COM 1` + `CUR 2` + `LEF 13` + `HIB 28` = 44, against
-  `PROCS 39` and 40 lines in SHOW SYSTEM (which showed 26 HIB, 13 LEF,
-  1 CUR). `CUR 2` with 2 CPUs suggests the counts include each CPU's
-  idle loop, and HIB two extra system processes. Before `process.state`
-  is built on these, compare them with MONITOR STATES.
+- **x86: `$GETRMI` state counts are not what MONITOR STATES shows.**
+  Run 5: `CUR 2`, `LEF 13 → 12`, `HIB 28 → 29`, `PROCS 39`. MONITOR
+  STATES a minute later: `Local Event Flag Wait 13`, `Hibernate 26`,
+  `Current Process 1`, total 40, which matches SHOW SYSTEM (26 HIB,
+  13 LEF, 1 CUR, 40 lines). So raw `$GETRMI` counts one more CUR and
+  two more HIB than MONITOR and SHOW SYSTEM, and `PROCS` is one fewer
+  than either. MONITOR evidently corrects the raw counts in a way not
+  yet known — perhaps leaving out per-CPU system processes that SHOW
+  SYSTEM does not list. Design: `process.state` from raw `$GETRMI`
+  would disagree with every VMS tool an administrator checks it
+  against. Needs the I64 numbers before choosing.

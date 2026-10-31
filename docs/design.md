@@ -167,7 +167,7 @@ implementation time.
 | `system.paging.faults` | sum | {fault} | `RMI$_FAULTS`, `RMI$_PREADS` | hard faults = page reads; soft = the rest |
 | `system.paging.operations` | sum | {operation} | `RMI$_PREADIO`, `RMI$_PWRITIO` | |
 | `system.paging.usage` | gauge | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | *(probe: items exist on both versions)* |
-| `system.process.count` | gauge | {process} | `RMI$_COM`, `LEF`, `HIB`, … | attribute `process.state` = the VMS scheduling state, lower-cased. On x86 the states summed to 44 against `PROCS` 39. *(probe: compare with MONITOR STATES)* |
+| `system.process.count` | gauge | {process} | `RMI$_COM`, `LEF`, `HIB`, … | attribute `process.state` = the VMS scheduling state, lower-cased. On x86 raw `$GETRMI` shows one more CUR and two more HIB than MONITOR STATES and SHOW SYSTEM, and `PROCS` one fewer. *(probe: I64; how MONITOR adjusts them)* |
 | `system.uptime` | gauge | s | `SYI$_BOOTTIME` | |
 | `system.filesystem.usage` | gauge | By | `DVI$_FREEBLOCKS`, `DVI$_MAXBLOCK` | per mounted disk; 512-byte blocks; `system.device`, `system.filesystem.mountpoint` = volume label |
 | `system.disk.operations` | sum | {operation} | `DVI$_OPCNT` | per disk; no read/write split exists, so no `disk.io.direction` |
