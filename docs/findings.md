@@ -5,7 +5,7 @@ it. A question is answered only when both machines have a row.
 
 Machines: **x86** = E9.2-4 on QEMU ("QEMU Standard PC (Q35 + ICH9,
 2009)"), 2 CPUs, VSI C `__DECC_VER 70790003`. **I64** = rx2660,
-V8.4-2L3, VSI C V7.4-001.
+V8.4-2L3, "HP rx2660 (1.59GHz/6.0MB)", 1 CPU, VSI C `__DECC_VER 70490001`.
 
 Runs so far, all **x86, 2026-10-31**, user IAIN:
 1. 20:17, probes from 2be172f, nearly every privilege enabled.
@@ -18,31 +18,36 @@ Runs so far, all **x86, 2026-10-31**, user IAIN:
 5. ~21:38, `probe_rmi` alone from 448033c (longword return length),
    privileged; then `MONITOR STATES/SUMMARY` for 5 s.
 
-Collector output on docker-nuc not yet pasted.
+Runs on **I64 (MYI64), 2026-10-31 21:40**, user IAIN, probes from
+890bde9: one full run with the same privileges as x86 (ACNT … WORLD).
+The unprivileged run in a NETMBX/TMPMBX subprocess did not start (see
+Surprises).
+
+Collector output on docker-nuc not yet pasted for either machine.
 
 | # | Question | x86 | I64 | Evidence / notes |
 | --- | --- | --- | --- | --- |
-| 1 | All six probes build; no LINK warnings | yes | | x86: `built:  probe_syi probe_rmi probe_jpi probe_dvi probe_otlp probe_otlp_tls`, no FAILED line |
-| 2 | `printf("%llu")` works | yes | | x86: `printf %llu check: 12345678901` |
-| 3 | Item-list layout is 12 bytes | yes | | x86: `item list entry: 12 bytes, pointers 4 bytes` |
-| 4 | `SYI$_` items: which are declared, which accepted | all but one | | x86: every item accepted except `SYI$_FREE_PAGES  not declared in <syidef.h>`. Not needed: free memory comes from `RMI$_FRLIST`. `HW_MODEL` 2 bytes, `CLUSTER_MEMBER` 1, `CLUSTER_NODES` 2, `MAXPROCESSCNT` 2 — not all longwords |
-| 5 | `time()` is UTC | not settled | | x86: `time()` = `$GETTIM` = `$GETTIM minus differential` = `2026-10-31T20:17:43Z`, but the differential is 0 (GMT), so local time and UTC are the same and this cannot tell them apart. Needs a run while a nonzero differential is in force |
-| 6 | `SYS$TIMEZONE_DIFFERENTIAL` defined and correct | defined | | x86: `SYS$TIMEZONE_DIFFERENTIAL  0`, `SYS$TIMEZONE_NAME  GMT`. Correct for UK winter; see Surprises on boot time |
-| 7 | `RMI$_` items: declared, accepted, byte size | all 38 | | x86 run 4: every item declared and accepted. **Quadword** (accepts len 8, `retlen 8`): the eight `CPU*` modes, `FRLIST`, `MODLIST`. **Longword only** (len 8 → `queue 00000014` = SS$_BADPARAM, len 4 → `retlen 4`): everything else, including `PROCS`. Runs 1–3 crashed: see Surprises, return length. Run 5, with a longword return length: no `GUARD changed` line for any item |
-| 8 | CPU mode counters are 10 ms ticks summed over CPUs | yes | | x86 run 4a: `sum of deltas 1012 over 5.18 s` = `97.7 units per second per active CPU`, 2 CPUs; 4b `97.3`. That sum includes `CPUINTSTK`'s negative delta (−14, −20); without it 99.0 and 99.2. Run 5, which leaves it out: `7 mode items accepted, sum of deltas 1006 over 5.08 s` = `99.0`. `CPUINTSTK` is not usable: see Surprises |
-| 9 | `$GETRMI` works unprivileged | **yes** | | x86 run 4b (NETMBX, TMPMBX): every item `ok`, same sizes and plausible values as 4a |
-| 10 | Which `RMI$_` items are counters and which gauges | see notes | | x86 run 4, by size and 5 s delta. **Counters**: `CPU*` (except `CPUINTSTK`), `FAULTS`, `PREADS`, `PWRITES`, `PREADIO`, `PWRITIO`, `GVALFLTS`, `DZROFLTS`, `TRANSFLTS`, `DIRIO`, `BUFIO` (`645065712 → 645068377`), `MBREADS`, `MBWRITES`; `SYSFAULTS`, `ISWPCNT` were 0. **Gauges**: `PROCS` (39/40), `FRLIST` (`+12`), `MODLIST`, and the state counts `COM` … `CEF` (`LEF 14 → 13`). `BUFIO` at 6.45 × 10⁸ after 8.2 days (≈ 78 M a day) wraps its longword about 7 weeks from now |
-| 11 | `JPI$_PPGCNT`/`GPGCNT` are pages or pagelets | **pagelets** | | x86: `MARIADBD_3306 … 209664` vs SHOW SYSTEM Pages `13104`; `LTPHP_19000 62464` vs `3904`. Ratio exactly 16 = 8192 / 512. SHOW SYSTEM's column is pages |
-| 12 | Processes visible unprivileged vs `SHOW SYSTEM` | **own only** | | x86 run 3: `processes returned  3`, `NOPRIV  38` — IAIN's three processes; 3 + 38 = 41 = SHOW SYSTEM's 41 lines. Privileged run 2: `40`, `NOPRIV 0` = SHOW SYSTEM's 40. The scan does not stop at NOPRIV, it skips |
-| 13 | Full `$GETJPI` scan cost | 1–2 ms | | x86: `scan took 2.0 ms` (42 processes), `1.0 ms` (40), `1.0 ms` unprivileged |
-| 14 | `$DEVICE_SCAN` finds every disk in `SHOW DEVICE D` | yes, and more | | x86: `7 disks found` — all five of SHOW DEVICE D (DMM0, DKA0, DKA100, DKA200, DKA300) plus `LDM0` and `LDM2585`; see Surprises |
-| 15 | `DVI$_FREEBLOCKS` matches `SHOW DEVICE D` | yes | | x86 run 2, exact on all three mounted D disks: `20008384`, `1132080`/`1132064` (DKA200, busy), `7313558`; run 3 `1131408` = `1131408`. Unprivileged too |
-| 16 | Shadow-set items available | accepted; untested | | x86: `SHDW_MASTER`, `SHDW_MEMBER` accepted, 1 byte, all 0; `SHDW_MASTER_NAME` 0 bytes. No shadow sets on this system, so behaviour on a member is unseen |
-| 17 | `DVI$_OPCNT` is cumulative | yes | | x86: `DKA0: 6460564 -> 6460716 (+152)`, `DKA300: 158705019 -> 158705083 (+64)` over 5 s. Longword |
-| 18 | TCP and HTTP exchange to the collector; HTTP 200 | yes | | x86: `ok TCP connect`, `HTTP/1.1 200 OK`, body `{"partialSuccess":{}}` |
-| 19 | Collector shows the data points | | | collector output not pasted yet |
-| 20 | libssl image name and family found | SSL3 | | x86: `OpenSSL: SYS$LIBRARY:SSL3$LIBSSL_SHR32, SYS$LIBRARY:SSL3$LIBCRYPTO_SHR32, headers SSL3$INCLUDE`; `OpenSSL 3.0.21 9 Jun 2026` |
-| 21 | TLS handshake; version and cipher | yes | | x86: `negotiated TLSv1.3, TLS_AES_128_GCM_SHA256`, then HTTP 200 |
+| 1 | All six probes build; no LINK warnings | yes | yes | x86: `built:  probe_syi probe_rmi probe_jpi probe_dvi probe_otlp probe_otlp_tls`, no FAILED line. I64: `built:  probe_syi probe_rmi probe_jpi probe_dvi probe_otlp probe_otlp_tls`, no FAILED line |
+| 2 | `printf("%llu")` works | yes | yes | x86: `printf %llu check: 12345678901`. I64: `printf %llu check: 12345678901` |
+| 3 | Item-list layout is 12 bytes | yes | yes | x86: `item list entry: 12 bytes, pointers 4 bytes`. I64: `item list entry: 12 bytes, pointers 4 bytes` |
+| 4 | `SYI$_` items: which are declared, which accepted | all but one | all but one | x86: every item accepted except `SYI$_FREE_PAGES  not declared in <syidef.h>`. Not needed: free memory comes from `RMI$_FRLIST`. `HW_MODEL` 2 bytes, `CLUSTER_MEMBER` 1, `CLUSTER_NODES` 2, `MAXPROCESSCNT` 2 — not all longwords. I64: the same — `SYI$_FREE_PAGES  not declared`, the rest accepted with the same sizes as x86 |
+| 5 | `time()` is UTC | not settled | not settled | x86: `time()` = `$GETTIM` = `$GETTIM minus differential` = `2026-10-31T20:17:43Z`, but the differential is 0 (GMT), so local time and UTC are the same and this cannot tell them apart. Needs a run while a nonzero differential is in force. I64: also `SYS$TIMEZONE_DIFFERENTIAL 0`, all three readings `2026-10-31T21:40:34Z`; cannot tell |
+| 6 | `SYS$TIMEZONE_DIFFERENTIAL` defined and correct | defined | defined | x86: `SYS$TIMEZONE_DIFFERENTIAL  0`, `SYS$TIMEZONE_NAME  GMT`. Correct for UK winter; see Surprises on boot time. I64: `0`, `GMT`, same rule `GMT0BST^1,M3.5.0/01,M10.4.0/02` |
+| 7 | `RMI$_` items: declared, accepted, byte size | all 38 | all 38 | x86 run 4: every item declared and accepted. **Quadword** (accepts len 8, `retlen 8`): the eight `CPU*` modes, `FRLIST`, `MODLIST`. **Longword only** (len 8 → `queue 00000014` = SS$_BADPARAM, len 4 → `retlen 4`): everything else, including `PROCS`. Runs 1–3 crashed: see Surprises, return length. Run 5, with a longword return length: no `GUARD changed` line for any item. I64: identical item set and sizes (quadword `CPU*`, `FRLIST`, `MODLIST`; longword-only the rest). No `GUARD changed` line — but this probe already gave a longword return length, so I64 writing 2 or 4 bytes cannot be told apart |
+| 8 | CPU mode counters are 10 ms ticks summed over CPUs | yes | 10 ms ticks | x86 run 4a: `sum of deltas 1012 over 5.18 s` = `97.7 units per second per active CPU`, 2 CPUs; 4b `97.3`. That sum includes `CPUINTSTK`'s negative delta (−14, −20); without it 99.0 and 99.2. Run 5, which leaves it out: `7 mode items accepted, sum of deltas 1006 over 5.08 s` = `99.0`. `CPUINTSTK` is not usable: see Surprises. I64: `8 mode items accepted, sum of deltas 504 over 5.05 s` = `99.8`, `CPUINTSTK` normal (`695781`, +0). One CPU (`ACTIVECPU_CNT 1`), so summing over CPUs is shown by x86 only |
+| 9 | `$GETRMI` works unprivileged | **yes** | not run | x86 run 4b (NETMBX, TMPMBX): every item `ok`, same sizes and plausible values as 4a. I64: the unprivileged run did not start — `%DCL-E-OPENIN … build_probes.COM … -RMS-E-PRV`; see Surprises |
+| 10 | Which `RMI$_` items are counters and which gauges | see notes | same as x86 | x86 run 4, by size and 5 s delta. **Counters**: `CPU*` (except `CPUINTSTK`), `FAULTS`, `PREADS`, `PWRITES`, `PREADIO`, `PWRITIO`, `GVALFLTS`, `DZROFLTS`, `TRANSFLTS`, `DIRIO`, `BUFIO` (`645065712 → 645068377`), `MBREADS`, `MBWRITES`; `SYSFAULTS`, `ISWPCNT` were 0. **Gauges**: `PROCS` (39/40), `FRLIST` (`+12`), `MODLIST`, and the state counts `COM` … `CEF` (`LEF 14 → 13`). `BUFIO` at 6.45 × 10⁸ after 8.2 days (≈ 78 M a day) wraps its longword about 7 weeks from now. I64: same split; `BUFIO 1904861111`, `DIRIO 80220279` counters, `FRLIST +1`, `LEF 16 → 15` gauges |
+| 11 | `JPI$_PPGCNT`/`GPGCNT` are pages or pagelets | **pagelets** | **pagelets** | x86: `MARIADBD_3306 … 209664` vs SHOW SYSTEM Pages `13104`; `LTPHP_19000 62464` vs `3904`. Ratio exactly 16 = 8192 / 512. SHOW SYSTEM's column is pages. I64: `LTPHP_19000 38688` vs SHOW SYSTEM `2418`; ratio 16. **Answered on both** |
+| 12 | Processes visible unprivileged vs `SHOW SYSTEM` | **own only** | not run | x86 run 3: `processes returned  3`, `NOPRIV  38` — IAIN's three processes; 3 + 38 = 41 = SHOW SYSTEM's 41 lines. Privileged run 2: `40`, `NOPRIV 0` = SHOW SYSTEM's 40. The scan does not stop at NOPRIV, it skips. I64: privileged only, `processes returned 42`, `NOPRIV 0` = SHOW SYSTEM's 42; unprivileged run did not start |
+| 13 | Full `$GETJPI` scan cost | 1–2 ms | 1 ms | x86: `scan took 2.0 ms` (42 processes), `1.0 ms` (40), `1.0 ms` unprivileged. I64: `scan took 1.0 ms` for 42 processes, privileged |
+| 14 | `$DEVICE_SCAN` finds every disk in `SHOW DEVICE D` | yes, and more | yes | x86: `7 disks found` — all five of SHOW DEVICE D (DMM0, DKA0, DKA100, DKA200, DKA300) plus `LDM0` and `LDM2585`; see Surprises. I64: `2 disks found` = SHOW DEVICE D's `DKA800`, `DNA0`. **Answered on both** (x86 adds LD devices) |
+| 15 | `DVI$_FREEBLOCKS` matches `SHOW DEVICE D` | yes | yes | x86 run 2, exact on all three mounted D disks: `20008384`, `1132080`/`1132064` (DKA200, busy), `7313558`; run 3 `1131408` = `1131408`. Unprivileged too. I64: `48116480` = `48116480`. **Answered on both** |
+| 16 | Shadow-set items available | accepted; untested | accepted; untested | x86: `SHDW_MASTER`, `SHDW_MEMBER` accepted, 1 byte, all 0; `SHDW_MASTER_NAME` 0 bytes. No shadow sets on this system, so behaviour on a member is unseen. I64: same items accepted, no shadow sets either. Still unseen on a shadowed disk |
+| 17 | `DVI$_OPCNT` is cumulative | yes | yes | x86: `DKA0: 6460564 -> 6460716 (+152)`, `DKA300: 158705019 -> 158705083 (+64)` over 5 s. Longword. I64: `DKA800: 1868831249 -> 1868831262 (+13)`. Longword, already at 1.87 × 10⁹ after 14 days — wraps in about 2½ weeks. **Answered on both** |
+| 18 | TCP and HTTP exchange to the collector; HTTP 200 | yes | yes | x86: `ok TCP connect`, `HTTP/1.1 200 OK`, body `{"partialSuccess":{}}`. I64: `HTTP/1.1 200 OK`, `{"partialSuccess":{}}`. **Answered on both** |
+| 19 | Collector shows the data points | | | collector output not pasted yet. I64: collector output not pasted either |
+| 20 | libssl image name and family found | SSL3 | SSL3 | x86: `OpenSSL: SYS$LIBRARY:SSL3$LIBSSL_SHR32, SYS$LIBRARY:SSL3$LIBCRYPTO_SHR32, headers SSL3$INCLUDE`; `OpenSSL 3.0.21 9 Jun 2026`. I64: `SYS$LIBRARY:SSL3$LIBSSL_SHR32 …`, `OpenSSL 3.0.22 25 Aug 2026`. **Answered on both** |
+| 21 | TLS handshake; version and cipher | yes | yes | x86: `negotiated TLSv1.3, TLS_AES_128_GCM_SHA256`, then HTTP 200. I64: `TLSv1.3, TLS_AES_128_GCM_SHA256`, HTTP 200. **Answered on both** |
 | 22 | Certificate verifies with `--cafile` | | | optional, not run |
 
 ## Surprises
@@ -108,3 +113,31 @@ what it changes in the design.
   SYSTEM does not list. Design: `process.state` from raw `$GETRMI`
   would disagree with every VMS tool an administrator checks it
   against. Needs the I64 numbers before choosing.
+- **I64: the clone is unreadable without privilege.** In the
+  NETMBX/TMPMBX subprocess: `%DCL-E-OPENIN, error opening
+  DKA800:[CODE.vmsotel]build_probes.COM; as input`, `-RMS-E-PRV`. The
+  same steps worked on x86. Probably the files are owned by the owner of
+  `[CODE]`, not IAIN — VMS gives new files the directory owner's UIC
+  when the creator holds privilege — and WORLD has no read access. Not
+  yet confirmed: the next run lists owner and protection first. For the
+  agent: its install must set owner and protection explicitly.
+- **I64: `$GETRMI` state counts match MONITOR STATES exactly.** Second
+  sample `LEF 15`, `HIB 26`, `CUR 1`; MONITOR STATES `15`, `26`, `1`;
+  SHOW SYSTEM 15 LEF, 26 HIB, 1 CUR, 42 lines. So the extra CUR and two
+  HIB on x86 are x86's (2 CPUs, or the x86 port). On both machines
+  `PROCS` is one fewer than the total (I64 41 vs 42, x86 39 vs 40), so
+  `PROCS` is not "all processes".
+- **I64: `RMI$_CPUINTSTK` is an ordinary counter** (`695781`, steady).
+  The negative, falling value is x86-only.
+- **The two VMS clocks disagree with each other.** I64 is 13–14 s
+  behind the collector (`-14 s`, `-13 s`), x86 7–8 s, so at least one
+  VMS clock is wrong whatever docker-nuc says. I64 runs NTP
+  (`TCPIP$NTP_1` in SHOW SYSTEM) and is still the further off.
+- **I64: uptime shows the same hour.** `uptime 1203734 s (13 d 22:22)`
+  against SHOW SYSTEM `Uptime 13 23:22:57`; booted 17 October, in
+  summer time. **Answered on both**: `SYI$_BOOTTIME` is local time at
+  boot.
+- **I64: the system disk's `DVI$_OPCNT` is at 1 868 831 249** after 14
+  days, a longword. It passes 2^31 within days (any signed handling
+  breaks there) and wraps 2^32 in about 2½ weeks. Widening is needed
+  in practice, not just in theory.

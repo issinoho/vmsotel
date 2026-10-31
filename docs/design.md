@@ -131,13 +131,14 @@ history and computes no rates; the backend does that. `startTimeUnixNano`
 is the boot time from `SYI$_BOOTTIME` for system counters, and
 `JPI$_LOGINTIM` for per-process ones.
 
-**Boot time is local time at boot, not now.** On x86 it came out an
-hour away from SHOW SYSTEM's uptime once summer time had ended since
-boot (`docs/findings.md`, Surprises). Converting it with today's
-`SYS$TIMEZONE_DIFFERENTIAL` is wrong across a change. Options: apply the
-timezone rule for the boot date, or find an uptime that counts ticks, as
-SHOW SYSTEM's does. *(probe: what `SYS$TIMEZONE_RULE` holds; an
-unprivileged tick-based uptime)* The same applies to `JPI$_LOGINTIM`.
+**Boot time is local time at boot, not now.** On both machines it came
+out an hour away from SHOW SYSTEM's uptime, because summer time ended
+after they booted (`docs/findings.md`, Surprises). Converting it with
+today's `SYS$TIMEZONE_DIFFERENTIAL` is wrong across a change. Both hold
+the POSIX-style rule `GMT0BST^1,M3.5.0/01,M10.4.0/02` in
+`SYS$TIMEZONE_RULE`, so one option is to apply that rule to the boot
+date; the other is an uptime that counts ticks, as SHOW SYSTEM's does.
+*(probe: an unprivileged tick-based uptime)* The same applies to `JPI$_LOGINTIM`.
 A start time an hour out does not corrupt rates, but `system.uptime`
 would be wrong.
 
@@ -147,8 +148,14 @@ four-CPU system wraps after about 124 days of uptime. VMS systems run that long
 routinely. The agent widens each 32-bit counter to 64 bits by adding
 2^32 whenever a reading is lower than the last. A restart of the agent
 loses the widening, so after a restart it reports a new start time
-instead of a value that has gone backwards. *(probe: `probe_rmi`
-reports each item's size.)*
+instead of a value that has gone backwards.
+
+This is not hypothetical. On both machines only the `RMI$_CPU*` modes,
+`FRLIST` and `MODLIST` are quadwords; every other `RMI$_` counter, and
+`DVI$_OPCNT`, is a longword. The Itanium's system disk had counted
+1 868 831 249 operations in 14 days, so it passes 2^31 within days and
+wraps 2^32 in about two and a half weeks. Every longword is read as
+unsigned.
 
 ## Metrics, version 1
 
@@ -160,14 +167,14 @@ implementation time.
 
 | Metric | Type | Unit | Source | Notes |
 | --- | --- | --- | --- | --- |
-| `system.cpu.time` | sum | s | `RMI$_CPU*` | attribute `cpu.mode`; see mapping below. Quadword 10 ms ticks summed over all CPUs on x86. *(probe: same on I64)* |
+| `system.cpu.time` | sum | s | `RMI$_CPU*` | attribute `cpu.mode`; see mapping below. Quadword 10 ms ticks on both machines, summed over all CPUs (shown on x86; I64 has one CPU) |
 | `system.cpu.logical.count` | gauge | {cpu} | `SYI$_ACTIVECPU_CNT` | |
 | `system.memory.usage` | gauge | By | `RMI$_FRLIST`, `RMI$_MODLIST`, `SYI$_MEMSIZE` | `system.memory.state` = free, used, `modified` (VMS-specific: the modified page list) |
 | `system.memory.limit` | gauge | By | `SYI$_MEMSIZE` × `SYI$_PAGE_SIZE` | |
 | `system.paging.faults` | sum | {fault} | `RMI$_FAULTS`, `RMI$_PREADS` | hard faults = page reads; soft = the rest |
 | `system.paging.operations` | sum | {operation} | `RMI$_PREADIO`, `RMI$_PWRITIO` | |
-| `system.paging.usage` | gauge | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | *(probe: items exist on both versions)* |
-| `system.process.count` | gauge | {process} | `RMI$_COM`, `LEF`, `HIB`, … | attribute `process.state` = the VMS scheduling state, lower-cased. On x86 raw `$GETRMI` shows one more CUR and two more HIB than MONITOR STATES and SHOW SYSTEM, and `PROCS` one fewer. *(probe: I64; how MONITOR adjusts them)* |
+| `system.paging.usage` | gauge | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | both longwords, both machines |
+| `system.process.count` | gauge | {process} | `RMI$_COM`, `LEF`, `HIB`, … | attribute `process.state` = the VMS scheduling state, lower-cased. On I64 the raw counts equal MONITOR STATES; on x86 they show one more CUR and two more HIB. `PROCS` is one short of the total on both, so it is not used. *(open: what x86's extras are)* |
 | `system.uptime` | gauge | s | `SYI$_BOOTTIME` | |
 | `system.filesystem.usage` | gauge | By | `DVI$_FREEBLOCKS`, `DVI$_MAXBLOCK` | per mounted disk; 512-byte blocks; `system.device`, `system.filesystem.mountpoint` = volume label |
 | `system.disk.operations` | sum | {operation} | `DVI$_OPCNT` | per disk; no read/write split exists, so no `disk.io.direction` |
@@ -187,7 +194,7 @@ an agent switched off.
 | kernel | `kernel` |
 | executive | `executive` |
 | supervisor | `supervisor` |
-| interrupt stack | `interrupt` — but `RMI$_CPUINTSTK` is negative and falling on x86; dropped unless another source turns up |
+| interrupt stack | `interrupt` — a normal counter on I64; negative and falling on x86, so dropped there |
 | MP synchronisation | `mpsynch` |
 | compatibility | `compat` (always zero after VAX; dropped if so) |
 | idle | `idle` |
@@ -229,8 +236,9 @@ not list. LD volumes a user mounted are real filesystems and are
 reported; the memory disk is not.
 
 `DVI$_FREEBLOCKS` and `DVI$_MAXBLOCK` are longwords: correct up to 2
-TiB per volume. Larger volumes, if the system has any, need a 64-bit
-item. *(probe: `DVI$_VOLSIZE`)*
+TiB per volume. `DVI$_VOLSIZE` is a longword too on both machines, so it
+does not help; volumes over 2 TiB are out of scope until a 64-bit item
+is found.
 
 ## Running it
 
@@ -239,10 +247,12 @@ item. *(probe: `DVI$_VOLSIZE`)*
 - Configuration in a small `key = value` file: collector URL, interval
   (default 60 s), TLS CA file, extra resource attributes, process
   filter.
-- **Privilege**: none, if the probes show that `$GETRMI` needs none.
-  Per-process metrics need WORLD to see other users' processes; that is
-  phase 2 and opt-in. *(probe: `probe_rmi` run unprivileged;
-  `probe_jpi` count against `SHOW SYSTEM`)*
+- **Privilege**: none. `$GETRMI` needs none on x86. Per-process
+  metrics need WORLD: an unprivileged x86 scan saw only its own user's
+  3 of 41 processes. That is phase 2 and opt-in. *(probe: the same on
+  I64, whose unprivileged run did not start)*
+- **Install**: owner and protection are set explicitly. On I64 a git
+  clone made with privileges could not be read once they were dropped.
 - Collection takes a snapshot, encodes it, sends it. If the collector is
   unreachable, a bounded queue keeps the last N exports (default 10) and
   drops the oldest. A VMS production box must never fill its disk or
@@ -289,14 +299,15 @@ and the numbers in MONITOR are the other end.
 
 | Question | Answered by |
 | --- | --- |
-| Which `RMI$_` items exist on E9.2-4 and V8.4-2L3, and their sizes | `probe_rmi`, `HEADERS` |
-| Are the CPU mode counters 10 ms ticks summed over all CPUs — yes on x86 | `probe_rmi` |
-| Does `$GETRMI` need privilege — no on x86 | `probe_rmi` run unprivileged |
+| ~~Which `RMI$_` items exist, and their sizes~~ — all 38, same sizes on both | `probe_rmi` |
+| ~~Are the CPU mode counters 10 ms ticks summed over all CPUs~~ — yes | `probe_rmi` |
+| Does `$GETRMI` need privilege — no on x86; I64 not run | `probe_rmi` run unprivileged |
 | Is `time()` UTC — needs a nonzero differential to tell | `probe_syi`, `probe_otlp` |
-| `JPI$_PPGCNT`: pages or pagelets — pagelets on x86 | `probe_jpi` beside `SHOW SYSTEM` |
-| How many processes an unprivileged scan sees | `probe_jpi` |
-| Does `$DEVICE_SCAN` by class find every disk; shadow items | `probe_dvi` beside `SHOW DEVICE D` |
-| Does `printf` support `%llu` | every probe's first line |
-| TCP and an HTTP exchange to the collector | `probe_otlp` |
-| libssl image names; TLS handshake | `probe_otlp_tls`, `build_probes.com` |
+| ~~`JPI$_PPGCNT`: pages or pagelets~~ — pagelets on both | `probe_jpi` beside `SHOW SYSTEM` |
+| How many processes an unprivileged scan sees — own only on x86; I64 not run | `probe_jpi` |
+| ~~Does `$DEVICE_SCAN` by class find every disk~~ — yes, plus LD devices on x86; shadow items accepted but untested | `probe_dvi` beside `SHOW DEVICE D` |
+| ~~Does `printf` support `%llu`~~ — yes | every probe's first line |
+| ~~TCP and an HTTP exchange to the collector~~ — yes; collector side not yet seen | `probe_otlp` |
+| ~~libssl image names; TLS handshake~~ — SSL3 (3.0.21 / 3.0.22), TLS 1.3 | `probe_otlp_tls`, `build_probes.com` |
+| Which clock is wrong: x86 7 s and I64 14 s behind docker-nuc | `timedatectl` on docker-nuc |
 | Is zlib available (gzip) | later |
