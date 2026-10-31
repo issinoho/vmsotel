@@ -1,6 +1,6 @@
 #!/bin/sh
 # Self-signed certificate for the collector's TLS receiver, valid for
-# the laptop's address as the probes reach it. probe_otlp_tls reports
+# docker-nuc's address as the probes reach it. probe_otlp_tls reports
 # it as unverified unless given --cafile collector.crt, which is
 # expected; the handshake is the thing under test.
 set -e

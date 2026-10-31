@@ -13,12 +13,12 @@
  *   3. With --tls (probe_otlp_tls only): a TLS handshake through the
  *      installed OpenSSL, the version and cipher negotiated, and
  *      whether the certificate verified.
- *   4. Clock skew. The collector's Date header is the laptop's UTC;
+ *   4. Clock skew. The collector's Date header is docker-nuc's UTC;
  *      the difference from our time() is measured, not assumed.
  *
  * Usage:
  *   probe_otlp [--host H] [--port N] [--path P] [--tls] [--cafile F]
- * Defaults are the test collector on the development laptop.
+ * Defaults are the test collector on docker-nuc (192.168.0.218).
  */
 
 #if !defined(__VMS) && !defined(_POSIX_C_SOURCE)

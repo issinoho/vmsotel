@@ -1,4 +1,4 @@
-# OpenTelemetry Collector for the vmsotel probes, run on the laptop.
+# OpenTelemetry Collector for the vmsotel probes, run on docker-nuc (192.168.0.218).
 #
 # Port 4318 is plain OTLP/HTTP, for probe_otlp. Port 4319 is the same
 # with TLS, for probe_otlp_tls; run make-cert.sh first to create the

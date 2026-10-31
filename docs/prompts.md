@@ -32,7 +32,7 @@ on a machine. Paste one machine per message, or both, labelled.
 [Stage 0 prompt]
 
 Here is probes.log from the <x86-64 | Itanium> machine, run
-<unprivileged | with privileges: ...>. The collector on the laptop
+<unprivileged | with privileges: ...>. The collector on docker-nuc
 printed <paste its output, or "nothing">.
 
 <paste probes.log>
@@ -132,7 +132,7 @@ Linux.
   as needed, including the 429/503 retry and a collector that is down.
 
 Show it working against the fake collector. Commit and push, and tell
-me how to run it against the real collector on the laptop.
+me how to run it against the real collector on docker-nuc.
 ```
 
 ### 2c. VMS sources and build files
@@ -156,7 +156,7 @@ design needs is not confirmed, stop and tell me rather than guess.
   on Linux.
 
 Then give me the exact DCL to build, run the self-test, and run the
-agent once against the laptop collector at 192.168.0.218, on each
+agent once against the docker-nuc collector at 192.168.0.218, on each
 machine. Commit and push.
 ```
 

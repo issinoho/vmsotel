@@ -163,15 +163,19 @@ $!---------------------------------------------------------------------
 $!
 $ run:
 $ say ""
-$ say "privileges: ", f$getjpi("", "CURPRIV")
+$! SHOW, not F$GETJPI: a fully privileged process's CURPRIV list is
+$! longer than WRITE accepts (%DCL-W-TKNOVF on the first x86 run).
+$ show process/privileges
 $ call run_one probe_syi
 $ call run_one probe_rmi
 $ call run_one probe_jpi
-$!  For comparing JPI$_PPGCNT + GPGCNT with Ph.Mem, which is in pagelets.
+$!  For comparing JPI$_PPGCNT + GPGCNT with the Pages column, which is
+$!  in pages; on x86 the JPI items came back 16 times larger (pagelets).
+$!  Its Uptime is also the check on probe_syi's SYI$_BOOTTIME.
 $ show system
 $ call run_one probe_dvi
 $ show device d
-$!  Defaults to the collector on the laptop, 192.168.0.218:4318.
+$!  Defaults to the collector on docker-nuc, 192.168.0.218:4318.
 $ call run_one probe_otlp
 $ call run_one probe_otlp_tls "--tls" "--port" "4319"
 $ goto finish

@@ -12,7 +12,7 @@ MIT licensed (`LICENSE`).
 - `docs/prompts.md` — paste-ready prompts for each stage
 - `probes/` — six probes: four system-service probes, and the OTLP
   export without and with TLS
-- `collector/` — collector configuration for the laptop
+- `collector/` — collector configuration for docker-nuc
 - `tools/fake_collector.py` — a schema-checking stand-in collector for
   Linux testing
 - `stub/` — Linux stand-ins for the VMS system services, so the probes
@@ -33,13 +33,17 @@ of clock skew, plain HTTP to a TLS port). With the
 parses every payload against the official schema; without it, only the
 JSON syntax is checked, and it says so.
 
-## On the laptop: the collector
+## On docker-nuc: the collector
 
-The OTLP probes post to `192.168.0.218`, ports 4318 (plain) and 4319
-(TLS).
+The collector runs in Docker on docker-nuc, `192.168.0.218`, which is
+where the OTLP probes post: ports 4318 (plain) and 4319 (TLS). It needs
+a clone of this repository there; start Docker from inside it, or the
+bind mounts below name files that do not exist and Docker creates
+empty root-owned directories in their place.
 
 ```sh
-cd collector
+git clone https://github.com/issinoho/vmsotel.git ~/projects/vmsotel
+cd ~/projects/vmsotel/collector
 ./make-cert.sh
 docker run --rm -p 4318:4318 -p 4319:4319 \
   -v "$PWD/collector.yaml:/etc/otelcol/config.yaml:ro" \
@@ -48,7 +52,7 @@ docker run --rm -p 4318:4318 -p 4319:4319 \
   otel/opentelemetry-collector:0.111.0
 ```
 
-If the laptop runs a firewall, ports 4318 and 4319 must be open to the
+If docker-nuc runs a firewall, ports 4318 and 4319 must be open to the
 LAN (`sudo ufw allow 4318:4319/tcp` with ufw). Leave the collector's
 output in view: each probe's data points appear there, and that is the
 other end to watch.

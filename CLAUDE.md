@@ -51,13 +51,15 @@ the user runs on OpenVMS and pastes the output back.
 
 | | x86-64 | Itanium rx2660 |
 | --- | --- | --- |
-| OS | V9.2-3 | V8.4-2L3 |
+| OS | E9.2-4 (a QEMU guest) | V8.4-2L3 |
 | C | VSI C V7.7-003 | VSI C V7.4-001 |
 | TCP/IP | V6.0-30 | V6.0-31 |
 | LAN interface | `IE0`, 192.168.0.80 | `WE1` |
 
-The laptop running the test collector is **192.168.0.218**. The probes
-default to it: port 4318 for plain HTTP, 4319 for TLS.
+The test collector runs in Docker on **docker-nuc, 192.168.0.218**
+(not the development laptop). The probes default to it: port 4318 for
+plain HTTP, 4319 for TLS. It has its own clone of this repository at
+`~/projects/vmsotel`; commands for it must `cd` there first.
 
 Do not assume a finding on one machine holds on the other. The point
 of having two is that they differ in architecture, OS version and

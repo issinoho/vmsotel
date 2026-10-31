@@ -10,7 +10,8 @@
  *      off by the timezone differential, every point lands hours away
  *      from where a collector expects it and is silently mis-graphed.
  *   3. Uptime from SYI$_BOOTTIME, which is the start time every
- *      cumulative system counter needs.
+ *      cumulative system counter needs. Printed for comparison with
+ *      SHOW SYSTEM, not checked: BOOTTIME is local time at boot.
  *
  * No privilege needed.
  */
@@ -92,6 +93,14 @@ static void check_clock(void)
     printf("  SYS$TIMEZONE_DIFFERENTIAL  %s\n", tdf_s ? tdf_s : "(undefined)");
     printf("  SYS$TIMEZONE_NAME          %s\n", tz_name ? tz_name : "(undefined)");
     printf("  TZ                         %s\n", tz_rule ? tz_rule : "(undefined)");
+    {
+        /* The rule says whether the differential changes for summer
+           time, which decides whether SYI$_BOOTTIME (local time at
+           boot) can be turned into UTC with today's differential. */
+        const char *rule = getenv("SYS$TIMEZONE_RULE");
+
+        printf("  SYS$TIMEZONE_RULE          %s\n", rule ? rule : "(undefined)");
+    }
     if (tdf_s != NULL) {
         tdf = strtol(tdf_s, NULL, 10);
         have_tdf = 1;
@@ -120,12 +129,17 @@ static void check_clock(void)
         if (d < -2 || d > 2) {
             printf("  time() differs from local-minus-differential by %lld s\n", d);
             probe_fail("time() is not UTC as the differential describes it");
+        } else if (tdf == 0) {
+            /* Local time and UTC are the same now, so agreement says
+               nothing about which one time() follows. */
+            printf("  note  differential is 0: time() agrees, but this cannot "
+                   "tell UTC from local time\n");
         } else {
             probe_ok("time() is UTC, consistent with SYS$TIMEZONE_DIFFERENTIAL");
         }
     } else {
         printf("  no differential to check against; compare time() with "
-               "`date -u` on the laptop\n");
+               "`date -u` on docker-nuc\n");
     }
 
     if (boottime != 0 && now > boottime) {
@@ -134,9 +148,16 @@ static void check_clock(void)
         printf("  uptime                             %llu s (%llu d %02llu:%02llu)\n",
                up, up / 86400, (up % 86400) / 3600, (up % 3600) / 60);
         if (have_tdf)
-            show_utc("boot time, UTC",
+            show_utc("boot time, UTC (today's differential)",
                      (long long) ((boottime - PROBE_VMS_TO_UNIX) / 10000000ULL) - tdf);
-        probe_ok("uptime from SYI$_BOOTTIME");
+        /* No unprivileged second source for uptime here, so this is
+           not a pass: SHOW SYSTEM, run by build_probes, prints its own
+           Uptime to compare with. On x86 they differed by an hour after
+           a summer-time change: BOOTTIME is local time at boot, and
+           today's differential is not the one in force then. */
+        printf("  note  compare with Uptime in SHOW SYSTEM below; an hour's "
+               "difference means\n"
+               "        the differential changed since boot\n");
     }
 }
 

@@ -131,6 +131,16 @@ history and computes no rates; the backend does that. `startTimeUnixNano`
 is the boot time from `SYI$_BOOTTIME` for system counters, and
 `JPI$_LOGINTIM` for per-process ones.
 
+**Boot time is local time at boot, not now.** On x86 it came out an
+hour away from SHOW SYSTEM's uptime once summer time had ended since
+boot (`docs/findings.md`, Surprises). Converting it with today's
+`SYS$TIMEZONE_DIFFERENTIAL` is wrong across a change. Options: apply the
+timezone rule for the boot date, or find an uptime that counts ticks, as
+SHOW SYSTEM's does. *(probe: what `SYS$TIMEZONE_RULE` holds; an
+unprivileged tick-based uptime)* The same applies to `JPI$_LOGINTIM`.
+A start time an hour out does not corrupt rates, but `system.uptime`
+would be wrong.
+
 **Longword counters wrap.** A 32-bit count of 10 ms ticks wraps after
 497 days, and if the system-wide CPU totals sum over all CPUs, a
 four-CPU system wraps after about 124 days of uptime. VMS systems run that long
@@ -206,6 +216,11 @@ Shadow-set members are skipped and the virtual unit (`DSAn:`) is
 reported, or a mirrored volume counts twice. Unmounted disks are
 skipped. *(probe: `probe_dvi` prints the shadow items per disk.)*
 
+`$DEVICE_SCAN` by `DC$_DISK` also returns LD devices (x86: `LDM0`, and
+`LDM2585`, the boot memory disk `SYS$MD…`), which SHOW DEVICE D does
+not list. LD volumes a user mounted are real filesystems and are
+reported; the memory disk is not.
+
 `DVI$_FREEBLOCKS` and `DVI$_MAXBLOCK` are longwords: correct up to 2
 TiB per volume. Larger volumes, if the system has any, need a 64-bit
 item. *(probe: `DVI$_VOLSIZE`)*
@@ -267,11 +282,11 @@ and the numbers in MONITOR are the other end.
 
 | Question | Answered by |
 | --- | --- |
-| Which `RMI$_` items exist on V9.2-3 and V8.4-2L3, and their sizes | `probe_rmi`, `HEADERS` |
+| Which `RMI$_` items exist on E9.2-4 and V8.4-2L3, and their sizes | `probe_rmi`, `HEADERS` |
 | Are the CPU mode counters 10 ms ticks summed over all CPUs | `probe_rmi` |
 | Does `$GETRMI` need privilege | `probe_rmi` run unprivileged |
-| Is `time()` UTC | `probe_syi`, `probe_otlp` |
-| `JPI$_PPGCNT`: pages or pagelets | `probe_jpi` beside `SHOW SYSTEM` |
+| Is `time()` UTC — needs a nonzero differential to tell | `probe_syi`, `probe_otlp` |
+| `JPI$_PPGCNT`: pages or pagelets — pagelets on x86 | `probe_jpi` beside `SHOW SYSTEM` |
 | How many processes an unprivileged scan sees | `probe_jpi` |
 | Does `$DEVICE_SCAN` by class find every disk; shadow items | `probe_dvi` beside `SHOW DEVICE D` |
 | Does `printf` support `%llu` | every probe's first line |

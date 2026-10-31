@@ -35,6 +35,9 @@ typedef struct {
     unsigned short retlen;
     unsigned long long value;
     unsigned int status;
+    unsigned overrun;           /* bytes written, when more than offered */
+    unsigned offered;
+    unsigned char raw[64];      /* the start of what was written */
 } rmi_result;
 
 static rmi_result first[RMI_ITEMS_COUNT], second[RMI_ITEMS_COUNT];
@@ -42,7 +45,31 @@ static rmi_result first[RMI_ITEMS_COUNT], second[RMI_ITEMS_COUNT];
 /*
  * One item per call. The buffer is offered as a quadword first; if the
  * service insists on exactly a longword, it is asked again with 4.
+ *
+ * The buffer itself is much larger than what is offered, static rather
+ * than on the stack, and filled with a pattern first. The first x86 run
+ * crashed in here with an ACCVIO writing to address 0x14, which looks
+ * like a corrupted pointer: the likeliest cause is an item that writes
+ * more than the length it was given and overwrote the stack. Here an
+ * overrun lands in our own buffer, and the pattern shows how far it went.
  */
+#define RMI_BUF_SIZE 4096
+#define RMI_FILL 0xA5
+
+static unsigned char rmi_buf[RMI_BUF_SIZE];
+
+/* Index one past the last byte that no longer holds the fill pattern.
+   A written byte that happens to equal the pattern makes this an
+   underestimate, so the report says "at least". */
+static unsigned written_extent(void)
+{
+    unsigned n = RMI_BUF_SIZE;
+
+    while (n > 0 && rmi_buf[n - 1] == RMI_FILL)
+        n--;
+    return n;
+}
+
 static void query_one(const probe_item *it, rmi_result *r)
 {
     static const unsigned short sizes[2] = { 8, 4 };
@@ -50,17 +77,17 @@ static void query_one(const probe_item *it, rmi_result *r)
 
     memset(r, 0, sizeof *r);
     for (attempt = 0; attempt < 2; attempt++) {
-        unsigned char buf[8];
         unsigned short retlen = 0;
         unsigned short iosb[4] = { 0, 0, 0, 0 };
         probe_ile3 ile[2];
         unsigned int st;
+        unsigned extent;
 
-        memset(buf, 0, sizeof buf);
+        memset(rmi_buf, RMI_FILL, sizeof rmi_buf);
         memset(ile, 0, sizeof ile);
         ile[0].len = sizes[attempt];
         ile[0].code = (unsigned short) it->code;
-        ile[0].buf = buf;
+        ile[0].buf = rmi_buf;
         ile[0].retlen = &retlen;
 
         /* $GETRMI has no W form: queue it, then wait on the IOSB. */
@@ -70,10 +97,17 @@ static void query_one(const probe_item *it, rmi_result *r)
         if ((st & 1) && !(iosb[0] & 1))
             st = iosb[0];
         r->status = st;
+
+        extent = written_extent();
+        if (extent > sizes[attempt]) {
+            r->overrun = extent;
+            r->offered = sizes[attempt];
+            memcpy(r->raw, rmi_buf, sizeof r->raw);
+        }
         if (st & 1) {
             r->accepted = 1;
             r->retlen = retlen ? retlen : sizes[attempt];
-            r->value = probe_le(buf, sizes[attempt]);
+            r->value = probe_le(rmi_buf, sizes[attempt]);
             return;
         }
         if (st != SS$_BADPARAM)
@@ -81,13 +115,38 @@ static void query_one(const probe_item *it, rmi_result *r)
     }
 }
 
-static void sample(rmi_result *out)
+/* Names each item before asking for it, so that if the service still
+   brings the image down, the last name printed is the culprit. */
+static void sample(rmi_result *out, int trace)
 {
     size_t i;
 
-    for (i = 0; i < RMI_ITEMS_COUNT; i++)
-        if (rmi_items[i].code != PROBE_UNDECLARED)
-            query_one(&rmi_items[i], &out[i]);
+    for (i = 0; i < RMI_ITEMS_COUNT; i++) {
+        if (rmi_items[i].code == PROBE_UNDECLARED)
+            continue;
+        if (trace) {
+            printf("  querying %s\n", rmi_items[i].name);
+            fflush(stdout);
+        }
+        query_one(&rmi_items[i], &out[i]);
+    }
+}
+
+/* An item that wrote past the length it was offered. The agent must
+   size its buffers for this, so it counts as a failure. */
+static void report_overrun(const probe_item *it, const rmi_result *r)
+{
+    unsigned i, show;
+
+    if (r->overrun == 0)
+        return;
+    printf("  OVERRUN %s: offered %u bytes, service wrote at least %u:\n   ",
+           it->name, r->offered, r->overrun);
+    show = r->overrun < sizeof r->raw ? r->overrun : (unsigned) sizeof r->raw;
+    for (i = 0; i < show; i++)
+        printf(" %02x", r->raw[i]);
+    printf("%s\n", r->overrun > sizeof r->raw ? " ..." : "");
+    probe_fail("$GETRMI wrote past the buffer length it was given");
 }
 
 static unsigned int active_cpus(void)
@@ -134,10 +193,10 @@ int main(void)
     printf("sampling twice, %d s apart\n", INTERVAL_SECONDS);
 
     t0 = now_100ns();
-    sample(first);
+    sample(first, 1);
     sleep(INTERVAL_SECONDS);
     t1 = now_100ns();
-    sample(second);
+    sample(second, 0);
     seconds = (double) (t1 - t0) / 1e7;
 
     printf("\n  %-5s %-16s %20s %20s %12s  bytes\n",
@@ -150,6 +209,7 @@ int main(void)
             printf("  --    %-16s not declared in <rmidef.h>\n", it->name);
             continue;
         }
+        report_overrun(it, a);
         if (!a->accepted || !b->accepted) {
             printf("  no    %-16s %s\n", it->name,
                    probe_msg(a->accepted ? b->status : a->status));

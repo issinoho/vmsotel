@@ -58,6 +58,11 @@ void probe_print_value(const probe_item *it,
 {
     unsigned n = retlen ? retlen : it->size;
 
+    /* A text item that returned nothing (an unmounted disk's label) is
+       empty, not a buffer's worth of whatever was in it. */
+    if (it->kind == PK_TEXT && retlen == 0)
+        n = 0;
+
     switch (it->kind) {
     case PK_TEXT: {
         char s[256];
