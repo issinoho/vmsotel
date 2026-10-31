@@ -247,12 +247,13 @@ is found.
 - Configuration in a small `key = value` file: collector URL, interval
   (default 60 s), TLS CA file, extra resource attributes, process
   filter.
-- **Privilege**: none. `$GETRMI` needs none on x86. Per-process
-  metrics need WORLD: an unprivileged x86 scan saw only its own user's
-  3 of 41 processes. That is phase 2 and opt-in. *(probe: the same on
-  I64, whose unprivileged run did not start)*
+- **Privilege**: none. `$GETRMI` needs none on either machine.
+  Per-process metrics need WORLD: an unprivileged scan saw only its own
+  user's processes (x86 3 of 41, I64 3 of 43). That is phase 2 and
+  opt-in.
 - **Install**: owner and protection are set explicitly. On I64 a git
-  clone made with privileges could not be read once they were dropped.
+  clone made with privileges took the owner of its parent directory,
+  `[1,1]`, and could not be read once they were dropped.
 - Collection takes a snapshot, encodes it, sends it. If the collector is
   unreachable, a bounded queue keeps the last N exports (default 10) and
   drops the oldest. A VMS production box must never fill its disk or
@@ -301,10 +302,10 @@ and the numbers in MONITOR are the other end.
 | --- | --- |
 | ~~Which `RMI$_` items exist, and their sizes~~ — all 38, same sizes on both | `probe_rmi` |
 | ~~Are the CPU mode counters 10 ms ticks summed over all CPUs~~ — yes | `probe_rmi` |
-| Does `$GETRMI` need privilege — no on x86; I64 not run | `probe_rmi` run unprivileged |
+| ~~Does `$GETRMI` need privilege~~ — no, on both | `probe_rmi` run unprivileged |
 | Is `time()` UTC — needs a nonzero differential to tell | `probe_syi`, `probe_otlp` |
 | ~~`JPI$_PPGCNT`: pages or pagelets~~ — pagelets on both | `probe_jpi` beside `SHOW SYSTEM` |
-| How many processes an unprivileged scan sees — own only on x86; I64 not run | `probe_jpi` |
+| ~~How many processes an unprivileged scan sees~~ — the user's own, on both | `probe_jpi` |
 | ~~Does `$DEVICE_SCAN` by class find every disk~~ — yes, plus LD devices on x86; shadow items accepted but untested | `probe_dvi` beside `SHOW DEVICE D` |
 | ~~Does `printf` support `%llu`~~ — yes | every probe's first line |
 | ~~TCP and an HTTP exchange to the collector~~ — yes; collector side not yet seen | `probe_otlp` |

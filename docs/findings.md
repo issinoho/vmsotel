@@ -19,9 +19,10 @@ Runs so far, all **x86, 2026-10-31**, user IAIN:
    privileged; then `MONITOR STATES/SUMMARY` for 5 s.
 
 Runs on **I64 (MYI64), 2026-10-31 21:40**, user IAIN, probes from
-890bde9: one full run with the same privileges as x86 (ACNT … WORLD).
-The unprivileged run in a NETMBX/TMPMBX subprocess did not start (see
-Surprises).
+890bde9: run 1, full, with the same privileges as x86 (ACNT … WORLD);
+the unprivileged run in a NETMBX/TMPMBX subprocess did not start (see
+Surprises). Run 2, 21:47, after `SET SECURITY/OWNER=[IAIN]` on the
+clone: full, NETMBX/TMPMBX only, log in `SYS$LOGIN`.
 
 Collector output on docker-nuc not yet pasted for either machine.
 
@@ -35,11 +36,11 @@ Collector output on docker-nuc not yet pasted for either machine.
 | 6 | `SYS$TIMEZONE_DIFFERENTIAL` defined and correct | defined | defined | x86: `SYS$TIMEZONE_DIFFERENTIAL  0`, `SYS$TIMEZONE_NAME  GMT`. Correct for UK winter; see Surprises on boot time. I64: `0`, `GMT`, same rule `GMT0BST^1,M3.5.0/01,M10.4.0/02` |
 | 7 | `RMI$_` items: declared, accepted, byte size | all 38 | all 38 | x86 run 4: every item declared and accepted. **Quadword** (accepts len 8, `retlen 8`): the eight `CPU*` modes, `FRLIST`, `MODLIST`. **Longword only** (len 8 → `queue 00000014` = SS$_BADPARAM, len 4 → `retlen 4`): everything else, including `PROCS`. Runs 1–3 crashed: see Surprises, return length. Run 5, with a longword return length: no `GUARD changed` line for any item. I64: identical item set and sizes (quadword `CPU*`, `FRLIST`, `MODLIST`; longword-only the rest). No `GUARD changed` line — but this probe already gave a longword return length, so I64 writing 2 or 4 bytes cannot be told apart |
 | 8 | CPU mode counters are 10 ms ticks summed over CPUs | yes | 10 ms ticks | x86 run 4a: `sum of deltas 1012 over 5.18 s` = `97.7 units per second per active CPU`, 2 CPUs; 4b `97.3`. That sum includes `CPUINTSTK`'s negative delta (−14, −20); without it 99.0 and 99.2. Run 5, which leaves it out: `7 mode items accepted, sum of deltas 1006 over 5.08 s` = `99.0`. `CPUINTSTK` is not usable: see Surprises. I64: `8 mode items accepted, sum of deltas 504 over 5.05 s` = `99.8`, `CPUINTSTK` normal (`695781`, +0). One CPU (`ACTIVECPU_CNT 1`), so summing over CPUs is shown by x86 only |
-| 9 | `$GETRMI` works unprivileged | **yes** | not run | x86 run 4b (NETMBX, TMPMBX): every item `ok`, same sizes and plausible values as 4a. I64: the unprivileged run did not start — `%DCL-E-OPENIN … build_probes.COM … -RMS-E-PRV`; see Surprises |
+| 9 | `$GETRMI` works unprivileged | **yes** | **yes** | x86 run 4b (NETMBX, TMPMBX): every item `ok`, same sizes and plausible values as 4a. I64: the unprivileged run did not start — `%DCL-E-OPENIN … build_probes.COM … -RMS-E-PRV`; see Surprises. I64 run 2 (NETMBX, TMPMBX, after the ownership fix): every item `ok`, `sum of deltas 502 over 5.03 s` = `99.9`. **Answered on both** |
 | 10 | Which `RMI$_` items are counters and which gauges | see notes | same as x86 | x86 run 4, by size and 5 s delta. **Counters**: `CPU*` (except `CPUINTSTK`), `FAULTS`, `PREADS`, `PWRITES`, `PREADIO`, `PWRITIO`, `GVALFLTS`, `DZROFLTS`, `TRANSFLTS`, `DIRIO`, `BUFIO` (`645065712 → 645068377`), `MBREADS`, `MBWRITES`; `SYSFAULTS`, `ISWPCNT` were 0. **Gauges**: `PROCS` (39/40), `FRLIST` (`+12`), `MODLIST`, and the state counts `COM` … `CEF` (`LEF 14 → 13`). `BUFIO` at 6.45 × 10⁸ after 8.2 days (≈ 78 M a day) wraps its longword about 7 weeks from now. I64: same split; `BUFIO 1904861111`, `DIRIO 80220279` counters, `FRLIST +1`, `LEF 16 → 15` gauges |
 | 11 | `JPI$_PPGCNT`/`GPGCNT` are pages or pagelets | **pagelets** | **pagelets** | x86: `MARIADBD_3306 … 209664` vs SHOW SYSTEM Pages `13104`; `LTPHP_19000 62464` vs `3904`. Ratio exactly 16 = 8192 / 512. SHOW SYSTEM's column is pages. I64: `LTPHP_19000 38688` vs SHOW SYSTEM `2418`; ratio 16. **Answered on both** |
-| 12 | Processes visible unprivileged vs `SHOW SYSTEM` | **own only** | not run | x86 run 3: `processes returned  3`, `NOPRIV  38` — IAIN's three processes; 3 + 38 = 41 = SHOW SYSTEM's 41 lines. Privileged run 2: `40`, `NOPRIV 0` = SHOW SYSTEM's 40. The scan does not stop at NOPRIV, it skips. I64: privileged only, `processes returned 42`, `NOPRIV 0` = SHOW SYSTEM's 42; unprivileged run did not start |
-| 13 | Full `$GETJPI` scan cost | 1–2 ms | 1 ms | x86: `scan took 2.0 ms` (42 processes), `1.0 ms` (40), `1.0 ms` unprivileged. I64: `scan took 1.0 ms` for 42 processes, privileged |
+| 12 | Processes visible unprivileged vs `SHOW SYSTEM` | **own only** | **own only** | x86 run 3: `processes returned  3`, `NOPRIV  38` — IAIN's three processes; 3 + 38 = 41 = SHOW SYSTEM's 41 lines. Privileged run 2: `40`, `NOPRIV 0` = SHOW SYSTEM's 40. The scan does not stop at NOPRIV, it skips. I64: privileged only, `processes returned 42`, `NOPRIV 0` = SHOW SYSTEM's 42; unprivileged run did not start. I64 run 2: `processes returned 3`, `NOPRIV 40`; 3 + 40 = 43 = SHOW SYSTEM's 43 lines. **Answered on both** |
+| 13 | Full `$GETJPI` scan cost | 1–2 ms | 1 ms | x86: `scan took 2.0 ms` (42 processes), `1.0 ms` (40), `1.0 ms` unprivileged. I64: `scan took 1.0 ms` for 42 processes, privileged. I64 run 2: `0.0 ms` unprivileged (3 returned) |
 | 14 | `$DEVICE_SCAN` finds every disk in `SHOW DEVICE D` | yes, and more | yes | x86: `7 disks found` — all five of SHOW DEVICE D (DMM0, DKA0, DKA100, DKA200, DKA300) plus `LDM0` and `LDM2585`; see Surprises. I64: `2 disks found` = SHOW DEVICE D's `DKA800`, `DNA0`. **Answered on both** (x86 adds LD devices) |
 | 15 | `DVI$_FREEBLOCKS` matches `SHOW DEVICE D` | yes | yes | x86 run 2, exact on all three mounted D disks: `20008384`, `1132080`/`1132064` (DKA200, busy), `7313558`; run 3 `1131408` = `1131408`. Unprivileged too. I64: `48116480` = `48116480`. **Answered on both** |
 | 16 | Shadow-set items available | accepted; untested | accepted; untested | x86: `SHDW_MASTER`, `SHDW_MEMBER` accepted, 1 byte, all 0; `SHDW_MASTER_NAME` 0 bytes. No shadow sets on this system, so behaviour on a member is unseen. I64: same items accepted, no shadow sets either. Still unseen on a shadowed disk |
@@ -116,14 +117,15 @@ what it changes in the design.
 - **I64: the clone is unreadable without privilege.** In the
   NETMBX/TMPMBX subprocess: `%DCL-E-OPENIN, error opening
   DKA800:[CODE.vmsotel]build_probes.COM; as input`, `-RMS-E-PRV`. The
-  same steps worked on x86. Probably the files are owned by the owner of
-  `[CODE]`, not IAIN — VMS gives new files the directory owner's UIC
-  when the creator holds privilege — and WORLD has no read access. Not
-  yet confirmed: the next run lists owner and protection first. For the
+  same steps worked on x86. Confirmed cause: `CODE.DIR;1  [1,1]` and
+  `build_probes.com;1  [1,1]  (RWD,RWD,R,)` — the clone took the owner
+  of `[CODE]`, and WORLD has no access. After `SET SECURITY/OWNER=[IAIN]`
+  it read `[CYGNET,IAIN]` and the unprivileged run worked. For the
   agent: its install must set owner and protection explicitly.
 - **I64: `$GETRMI` state counts match MONITOR STATES exactly.** Second
   sample `LEF 15`, `HIB 26`, `CUR 1`; MONITOR STATES `15`, `26`, `1`;
-  SHOW SYSTEM 15 LEF, 26 HIB, 1 CUR, 42 lines. So the extra CUR and two
+  SHOW SYSTEM 15 LEF, 26 HIB, 1 CUR, 42 lines. Run 2 again: `CUR 1`,
+  `LEF 16`, `HIB 26` = 43 = SHOW SYSTEM's 43, `PROCS 42`. So the extra CUR and two
   HIB on x86 are x86's (2 CPUs, or the x86 port). On both machines
   `PROCS` is one fewer than the total (I64 41 vs 42, x86 39 vs 40), so
   `PROCS` is not "all processes".
