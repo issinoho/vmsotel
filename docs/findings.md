@@ -46,7 +46,7 @@ Collector output on docker-nuc not yet pasted for either machine.
 | 16 | Shadow-set items available | accepted; untested | accepted; untested | x86: `SHDW_MASTER`, `SHDW_MEMBER` accepted, 1 byte, all 0; `SHDW_MASTER_NAME` 0 bytes. No shadow sets on this system, so behaviour on a member is unseen. I64: same items accepted, no shadow sets either. Still unseen on a shadowed disk |
 | 17 | `DVI$_OPCNT` is cumulative | yes | yes | x86: `DKA0: 6460564 -> 6460716 (+152)`, `DKA300: 158705019 -> 158705083 (+64)` over 5 s. Longword. I64: `DKA800: 1868831249 -> 1868831262 (+13)`. Longword, already at 1.87 × 10⁹ after 14 days — wraps in about 2½ weeks. **Answered on both** |
 | 18 | TCP and HTTP exchange to the collector; HTTP 200 | yes | yes | x86: `ok TCP connect`, `HTTP/1.1 200 OK`, body `{"partialSuccess":{}}`. I64: `HTTP/1.1 200 OK`, `{"partialSuccess":{}}`. **Answered on both** |
-| 19 | Collector shows the data points | | | collector output not pasted yet. I64: collector output not pasted either |
+| 19 | Collector shows the data points | yes | yes | docker-nuc, otelcol 0.111.0 debug exporter: every export from both machines decoded — x86 at 20:17:56 and 20:17:57 (http, https), 21:28:28 ×2, 21:28:42–43 ×2; I64 at 21:40:58 ×2 and 21:47:22 ×2. Each: `resource metrics: 1, metrics: 2, data points: 2`, resource `host.name: Str(x86vms.issinoho.com)` / `Str(myi64.issinoho.com)`, `os.type: Str(openvms)`; `vmsotel.probe.heartbeat` as `Gauge`, `vmsotel.probe.exports` as `Sum`, `IsMonotonic: true`, `AggregationTemporality: Cumulative`, attribute `vmsotel.transport: Str(http)` / `Str(https)`. **Answered on both** |
 | 20 | libssl image name and family found | SSL3 | SSL3 | x86: `OpenSSL: SYS$LIBRARY:SSL3$LIBSSL_SHR32, SYS$LIBRARY:SSL3$LIBCRYPTO_SHR32, headers SSL3$INCLUDE`; `OpenSSL 3.0.21 9 Jun 2026`. I64: `SYS$LIBRARY:SSL3$LIBSSL_SHR32 …`, `OpenSSL 3.0.22 25 Aug 2026`. **Answered on both** |
 | 21 | TLS handshake; version and cipher | yes | yes | x86: `negotiated TLSv1.3, TLS_AES_128_GCM_SHA256`, then HTTP 200. I64: `TLSv1.3, TLS_AES_128_GCM_SHA256`, HTTP 200. **Answered on both** |
 | 22 | Certificate verifies with `--cafile` | | | optional, not run |
@@ -131,6 +131,18 @@ what it changes in the design.
   `PROCS` is not "all processes".
 - **I64: `RMI$_CPUINTSTK` is an ordinary counter** (`695781`, steady).
   The negative, falling value is x86-only.
+- **The collector's own clock shows the skew too.** Each data point
+  is stamped with the VMS time and logged with docker-nuc's arrival
+  time: x86 `Timestamp: 2026-10-31 20:17:49` logged at `20:17:56.276`
+  (7 s); I64 `21:40:44` logged at `21:40:58.391` (14 s). A dashboard
+  would place every VMS point that far in the past.
+- **`host.name` came from `gethostname`, not `SYI$_NODENAME`.** The
+  probe sent `x86vms.issinoho.com` and `myi64.issinoho.com`, the TCP/IP
+  names; the design's `SYI$_NODENAME` would send `X86VMS` and `MYI64`.
+  See design.md, Resource attributes.
+- **Gauges show `StartTimestamp: 1970-01-01`** in the debug output
+  because the probe sends none, which OTLP allows for gauges. Not a
+  fault; noted so it is not mistaken for one.
 - **Settled: the VMS clocks are wrong, not docker-nuc.** 21:57 UTC,
   from the development laptop (`System clock synchronized: yes`,
   `NTP service: active`): three POSTs to the collector gave `laptop

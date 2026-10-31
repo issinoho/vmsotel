@@ -229,7 +229,7 @@ actually reads in MONITOR.
 | Attribute | Source |
 | --- | --- |
 | `service.name` | `vmsotel` |
-| `host.name` | `SYI$_NODENAME` |
+| `host.name` | `gethostname()`, the TCP/IP name (`x86vms.issinoho.com` in the probes), falling back to `SYI$_NODENAME`. Matches what DNS and other hosts' agents report; the SCS name stays in `openvms.scsnode` |
 | `host.arch` | `SYI$_ARCH_NAME` → `amd64` / `ia64` |
 | `host.type` | `SYI$_HW_NAME` |
 | `os.type` | `openvms` (not in the semconv enum; custom values are allowed) |
@@ -321,7 +321,7 @@ and the numbers in MONITOR are the other end.
 | ~~How many processes an unprivileged scan sees~~ — the user's own, on both | `probe_jpi` |
 | ~~Does `$DEVICE_SCAN` by class find every disk~~ — yes, plus LD devices on x86; shadow items accepted but untested | `probe_dvi` beside `SHOW DEVICE D` |
 | ~~Does `printf` support `%llu`~~ — yes | every probe's first line |
-| ~~TCP and an HTTP exchange to the collector~~ — yes; collector side not yet seen | `probe_otlp` |
+| ~~TCP and an HTTP exchange to the collector~~ — yes, and every point decoded on the collector | `probe_otlp` |
 | ~~libssl image names; TLS handshake~~ — SSL3 (3.0.21 / 3.0.22), TLS 1.3 | `probe_otlp_tls`, `build_probes.com` |
 | ~~Which clock is wrong~~ — the VMS ones: x86 7 s, I64 13 s slow | laptop vs collector `Date` |
 | Is zlib available (gzip) | later |
