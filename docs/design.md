@@ -227,11 +227,11 @@ time; widened counters carry their own (see Counters).
 | --- | --- | --- | --- | --- |
 | `system.cpu.time` | counter | s | `RMI$_CPU*` | attribute `cpu.mode`; see mapping below. Quadword 10 ms ticks on both machines, summed over all CPUs (shown on x86; I64 has one CPU) |
 | `system.cpu.logical.count` | updowncounter | {cpu} | `SYI$_ACTIVECPU_CNT` | |
-| `system.memory.usage` | updowncounter | By | `RMI$_FRLIST`, `RMI$_MODLIST`, `SYI$_MEMSIZE` | `system.memory.state` = free, used, `modified` (VMS-specific: the modified page list); used = total − free − modified, never below 0. *(probe: pages or pagelets, findings 23; not sent until answered)* |
-| `system.memory.limit` | updowncounter | By | `SYI$_MEMSIZE` × `SYI$_PAGE_SIZE` | *(probe: as above)* |
+| `system.memory.usage` | updowncounter | By | `RMI$_FRLIST`, `RMI$_MODLIST`, `SYI$_MEMSIZE` | `system.memory.state` = free, used, `modified` (VMS-specific: the modified page list); used = total − free − modified, never below 0. All three in pages of `SYI$_PAGE_SIZE`, matched with SHOW MEMORY/PHYSICAL on both machines |
+| `system.memory.limit` | updowncounter | By | `SYI$_MEMSIZE` × `SYI$_PAGE_SIZE` | |
 | `system.paging.faults` | counter | {fault} | `RMI$_FAULTS`, `RMI$_PREADS` | `system.paging.fault.type` = major (page reads), minor (the rest, with the later of the two start times) |
 | `system.paging.operations` | counter | {operation} | `RMI$_PREADIO`, `RMI$_PWRITIO` | `system.paging.direction` = in, out |
-| `system.paging.usage` | updowncounter | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | `system.paging.state` = used, free. Both longwords on both machines. *(probe: pages or pagelets, findings 24; not sent until answered)* |
+| `system.paging.usage` | updowncounter | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | `system.paging.state` = used, free. Both longwords, in pages, on both machines. FREE is space never written: on x86 SHOW MEMORY/FILES showed all 233216 pages free with 61612 committed, so `used` is not "committed". Left out when no page file is installed |
 | `system.process.count` | updowncounter | {process} | `RMI$_COM`, `LEF`, `HIB`, … | one series per VMS state, each with `process.state` (semconv: COM, COMO, CUR → running; SUSP, SUSPO → stopped; the rest → sleeping) and `openvms.process.state` (the VMS name, lower-cased), so a stock dashboard sums by the first and an administrator reads the second. On I64 the raw counts equal MONITOR STATES; on x86 they show one more CUR and two more HIB. `PROCS` is one short of the total on both, so it is not used. *(open: what x86's extras are)* |
 | `system.uptime` | gauge | s | `SYI$_BOOTTIME` | whole seconds, as a double |
 | `system.filesystem.usage` | updowncounter | By | `DVI$_FREEBLOCKS`, `DVI$_MAXBLOCK` | per mounted disk; 512-byte blocks; `system.device`, `system.filesystem.mountpoint` = the logical volume name (`DISK$X86SYS`), `system.filesystem.state` = used, free |

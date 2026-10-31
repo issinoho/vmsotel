@@ -329,16 +329,20 @@ def agent_selftest(plain, tls, vmsstub=None):
     if vmsstub:
         # The VMS source against the stub: the disks it must skip
         # (shadow member DKA100, unmounted DQA0, memory disk LDM9) are
-        # absent, and so is memory, held back until its units are known.
+        # absent, and memory is in bytes: the stub's 524288 pages of
+        # 8192 and 233216-page page file with 172688 free.
         reset()
         rc, out = run(vmsstub, conf(port), 2)
         sent = b"".join(s[3] for s in State.seen)
         check("VMS source (stub): two exports; skips shadow member, "
-              "unmounted and memory disks; no memory",
+              "unmounted and memory disks; memory and page file in bytes",
               rc == 0 and len(accepted()) == 2 and
               b'"STUBBY$DKA0"' in sent and b'"DSA1"' in sent and
               b"DKA100" not in sent and b"DQA0" not in sent and
-              b"LDM9" not in sent and b"system.memory" not in sent and
+              b"LDM9" not in sent and
+              b'"asInt":"4294967296"' in sent and
+              b'"free"}}],"startTimeUnixNano"' in sent and
+              b'"asInt":"1414660096"' in sent and
               b"system.cpu.time" in sent and b'"lef"' in sent, out)
 
     srv.shutdown()

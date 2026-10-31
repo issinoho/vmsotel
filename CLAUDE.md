@@ -11,12 +11,12 @@ Phase 1 is under way. Steps 2a and 2b are done and tested on Linux:
 the model, the OTLP JSON encoder, the platform interface with a POSIX
 implementation, HTTP and TLS transport, the export queue, a fake
 source, and the agent loop (`build/vmsotel`, `build/vmsotel_tls`).
-Step 2c is written and waiting for its first VMS run: the VMS source
-(`src/sources/vms/`, built here against `stub/` as
-`build/vmsotel_vmsstub`), `build_vms.com` and `descrip.mms`. It holds
-back memory and page-file metrics until a self-test run settles their
-units (findings 23 and 24). `make check` also checks that the three
-build files compile the same sources.
+Step 2c has run on both machines: the VMS source (`src/sources/vms/`,
+built here against `stub/` as `build/vmsotel_vmsstub`), `build_vms.com`
+(SELFTEST, RUN) and `descrip.mms` (not yet run). Its self-test matched
+SHOW and MONITOR, and the agent sent exports to docker-nuc from both.
+`make check` also checks that the three build files compile the same
+sources.
 
 ## Where it lives
 

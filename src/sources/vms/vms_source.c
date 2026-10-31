@@ -13,12 +13,11 @@
  *     longwords) and OPCNT (a cumulative longword) behave as expected.
  *   - SYI$_BOOTTIME is local time at boot.
  *
- * Held back, because the units are not confirmed: memory (SYI$_MEMSIZE,
- * RMI$_FRLIST, RMI$_MODLIST) and the page file (SYI$_PAGEFILE_PAGE and
- * _FREE) could be pages or pagelets, and nothing has yet compared them
- * with SHOW MEMORY. The self-test prints them beside it; once a run on
- * both machines settles it, set mem_present and pagefile_present
- * with the unit proven, and they are reported.
+ *   - Memory (SYI$_MEMSIZE, RMI$_FRLIST, RMI$_MODLIST) and the page file
+ *     (SYI$_PAGEFILE_PAGE, _FREE) are in pages of SYI$_PAGE_SIZE bytes:
+ *     the 2c self-test matched each with SHOW MEMORY/PHYSICAL and
+ *     SHOW MEMORY/FILES on both machines (findings 23, 24). PAGEFILE_FREE
+ *     is space never written, so "used" is not SHOW MEMORY's "committed".
  *
  * Shadow-set members are skipped by DVI$_SHDW_MEMBER, so a mirrored
  * volume is counted once, as its DSA virtual unit. That item is
@@ -414,10 +413,38 @@ int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
     for (i = 0; i < VO_PROC_STATES; i++)
         RMI_LONG(state_items[i].code, r->proc_states[state_items[i].state]);
 
-    /* Held back until the self-test settles pages or pagelets: see the
-       top of this file. Absent, not zero, so nothing false goes out. */
-    r->mem_present = 0;
-    r->pagefile_present = 0;
+    /* Pages, on both machines (see the top of this file). */
+    st = syi_num(SYI$_MEMSIZE, 4, &v);
+    if (!(st & 1)) {
+        what = "SYI$_MEMSIZE";
+        goto fail;
+    }
+    r->mem_total_bytes = v * page_size;
+    st = rmi(RMI$_FRLIST, 8, &v);
+    if (!(st & 1)) {
+        what = "RMI$_FRLIST";
+        goto fail;
+    }
+    r->mem_free_bytes = v * page_size;
+    st = rmi(RMI$_MODLIST, 8, &v);
+    if (!(st & 1)) {
+        what = "RMI$_MODLIST";
+        goto fail;
+    }
+    r->mem_modified_bytes = v * page_size;
+    r->mem_present = 1;
+
+    /* A system with no page file installed is not an error. */
+    {
+        vo_u64 total = 0, free_pages = 0;
+
+        if ((syi_num(SYI$_PAGEFILE_PAGE, 4, &total) & 1) &&
+            (syi_num(SYI$_PAGEFILE_FREE, 4, &free_pages) & 1) && total > 0) {
+            r->pagefile_total_bytes = total * page_size;
+            r->pagefile_free_bytes = free_pages * page_size;
+            r->pagefile_present = 1;
+        }
+    }
 
     read_disks(r);
     return 1;
@@ -474,7 +501,8 @@ int vo_source_selftest(void)
                (up % 86400) / 3600, (up % 3600) / 60, up % 60);
     }
 
-    printf("\nMemory, raw -- NOT YET REPORTED, units unconfirmed\n");
+    printf("\nMemory, in pages of %llu bytes                    compare with\n",
+           page_size);
     syi_num(SYI$_MEMSIZE, 4, &memsize);
     rmi(RMI$_FRLIST, 8, &frlist);
     rmi(RMI$_MODLIST, 8, &modlist);
@@ -490,8 +518,10 @@ int vo_source_selftest(void)
            "\"Total size\" summed\n", pf_page);
     printf("  SYI$_PAGEFILE_FREE  %12llu    SHOW MEMORY/FILES, page files' "
            "\"Free\" summed\n", pf_free);
-    printf("  (SHOW MEMORY counts in pages, or pagelets with "
-           "/UNITS=PAGELETS)\n");
+    printf("  reported: total %llu, free %llu, modified %llu bytes; page "
+           "file %llu of %llu free\n", b.mem_total_bytes, b.mem_free_bytes,
+           b.mem_modified_bytes, b.pagefile_free_bytes,
+           b.pagefile_total_bytes);
 
     printf("\nCPU, share of all CPU time in each mode          "
            "MONITOR MODES; with N CPUs\n"

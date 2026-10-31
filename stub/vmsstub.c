@@ -137,6 +137,8 @@ int sys$getsyiw(unsigned int efn, unsigned int *csidadr, void *nodename,
         case SYI$_ACTIVECPU_CNT: put_num(e, 2); break;
         case SYI$_AVAILCPU_CNT: put_num(e, 2); break;
         case SYI$_BOOTTIME:     put_quad(e, now_100ns() - 86400ULL * 3 * 10000000ULL); break;
+        case SYI$_PAGEFILE_PAGE: put_num(e, 233216); break;
+        case SYI$_PAGEFILE_FREE: put_num(e, 172688); break;
         case SYI$_SWAPFILE_FREE:
             set_iosb(iosb, SS$_BADPARAM);
             return SS$_BADPARAM;
