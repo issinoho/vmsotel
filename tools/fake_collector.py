@@ -15,6 +15,11 @@ it only the JSON syntax and the outline are checked, and it says so.
     fake_collector.py --validate FILE...     check saved payloads, such
                                              as the encoder's golden
                                              files, the same way
+    fake_collector.py --agent-selftest PLAIN TLS
+                                             run the agent images against
+                                             it: retries, Retry-After,
+                                             rejection, a collector that
+                                             is down, TLS verification
 
 This is development tooling only. The real test is a real collector:
 see collector/collector.yaml.
@@ -75,6 +80,11 @@ class State:
     status = 200
     date_offset = 0          # seconds added to the Date header
     last = None              # (ok, message, points) of the last request
+    # Responses to give, in order, before falling back to `status`:
+    # (status, Retry-After or None, body or None).
+    script = []
+    # Every request: (monotonic time, status sent, valid, body bytes).
+    seen = []
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -100,19 +110,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
         State.last = result
         sys.stderr.write(f"collector: {result[1]}, {result[2]} points\n")
 
-        status = State.status if result[0] else 400
-        reply = b"{}" if status == 200 else json.dumps(
-            {"code": 3, "message": result[1]}).encode()
+        retry_after, reply = None, None
+        if not result[0]:
+            status = 400
+        elif State.script:
+            status, retry_after, reply = State.script.pop(0)
+        else:
+            status = State.status
+        State.seen.append((time.monotonic(), status, result[0], body))
+        if reply is None:
+            reply = b"{}" if status == 200 else json.dumps(
+                {"code": 3, "message": result[1]}).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        if retry_after is not None:
+            self.send_header("Retry-After", str(retry_after))
         self.send_header("Content-Length", str(len(reply)))
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(reply)
 
 
-def start(tls_dir=None):
-    srv = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+def start(tls_dir=None, port=0):
+    srv = http.server.HTTPServer(("127.0.0.1", port), Handler)
     if tls_dir:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(os.path.join(tls_dir, "collector.crt"),
@@ -192,6 +212,187 @@ def selftest(plain, tls):
     return 1 if failures else 0
 
 
+def free_port():
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def agent_selftest(plain, tls):
+    """Runs the agent images against this collector. Each case states
+    what must happen at both ends: the agent's exit status and log, and
+    what the collector received."""
+    failures = 0
+
+    def run(image, conf, cycles, drain=8, timeout=60):
+        with tempfile.NamedTemporaryFile("w", suffix=".conf",
+                                         delete=False) as f:
+            f.write(conf)
+        try:
+            p = subprocess.run([image, f.name, "--cycles", str(cycles),
+                                "--drain", str(drain)],
+                               capture_output=True, text=True,
+                               timeout=timeout)
+            return p.returncode, p.stdout
+        finally:
+            os.unlink(f.name)
+
+    def check(name, good, out=""):
+        nonlocal failures
+        print(f"{'ok  ' if good else 'FAIL'}  {name}")
+        if not good:
+            failures += 1
+            print(out)
+
+    def reset(script=(), status=200, offset=0):
+        State.script = list(script)
+        State.status = status
+        State.date_offset = offset
+        State.seen = []
+
+    def accepted():
+        return [s for s in State.seen if s[1] == 200 and s[2]]
+
+    def conf(port, extra=""):
+        return f"host = 127.0.0.1\nport = {port}\ninterval = 1\n" + extra
+
+    def gauge(body, name):
+        doc = json.loads(body)
+        for m in doc["resourceMetrics"][0]["scopeMetrics"][0]["metrics"]:
+            if m["name"] == name:
+                return m["gauge"]["dataPoints"][0]["asDouble"]
+        return None
+
+    if not HAVE_PROTO:
+        print("note  opentelemetry-proto not installed: payloads checked "
+              "for JSON syntax only")
+
+    srv, port = start()
+
+    reset()
+    rc, out = run(plain, conf(port), 3)
+    check("three cycles, three valid exports accepted",
+          rc == 0 and len(accepted()) == 3 and
+          all(s[2] for s in State.seen) and
+          "3 sent, 0 failed attempts, 0 dropped" in out and
+          "CLOCK" not in out, out)
+
+    # Backoff doubles from 1 s but never past the interval, so this one
+    # runs at 5 s to see it double.
+    reset(script=[(503, None, None), (503, None, None)])
+    rc, out = run(plain, conf(port).replace("interval = 1", "interval = 5"),
+                  2)
+    check("503 twice: retried with doubling backoff, nothing lost",
+          rc == 0 and len(accepted()) == 2 and
+          out.count("export failed, HTTP 503") == 2 and
+          "retrying in 1000 ms" in out and "retrying in 2000 ms" in out and
+          "2 sent, 2 failed attempts, 0 dropped" in out, out)
+
+    reset(script=[(429, 3, None)])
+    rc, out = run(plain, conf(port), 1)
+    gap = (State.seen[1][0] - State.seen[0][0]) if len(State.seen) > 1 else 0
+    check(f"429 with Retry-After: 3 honoured (next try after {gap:.1f} s)",
+          rc == 0 and len(accepted()) == 1 and 2.9 <= gap < 5 and
+          "retrying in 3000 ms" in out, out)
+
+    reset(script=[(400, None, b'{"code":3,"message":"proto: bad"}')])
+    rc, out = run(plain, conf(port), 2)
+    check("400: dropped loudly, not retried, the next one sent",
+          rc == 0 and len(State.seen) == 2 and len(accepted()) == 1 and
+          "EXPORT REJECTED, HTTP 400: proto: bad" in out and
+          "1 sent, 0 failed attempts, 1 dropped" in out, out)
+
+    reset(script=[(200, None, b'{"partialSuccess":{"rejectedDataPoints":'
+                              b'"2","errorMessage":"unit"}}')])
+    rc, out = run(plain, conf(port), 1)
+    check("200 with rejected points: delivered, and logged",
+          rc == 0 and "rejected 2 data points: unit" in out, out)
+
+    reset(offset=3600)
+    rc, out = run(plain, conf(port), 2)
+    skew = gauge(State.seen[-1][3], "vmsotel.clock.skew") if State.seen else None
+    check(f"collector an hour ahead: vmsotel.clock.skew = {skew}, "
+          "warned once",
+          rc == 0 and skew is not None and -3602 <= skew <= -3598 and
+          out.count("CLOCK: this system is 3600 s behind the collector") == 1,
+          out)
+
+    reset()
+    rc, out = run(plain, conf(port, "max_payload = 4096\n"), 1, drain=1)
+    check("payload over max_payload: dropped with the size it needs",
+          rc == 0 and len(State.seen) == 0 and
+          "more than max_payload 4096; dropped -- raise max_payload" in out,
+          out)
+    srv.shutdown()
+    srv.server_close()
+
+    down = free_port()
+    rc, out = run(plain, conf(down, "queue = 2\n"), 4, drain=2)
+    check("collector down: bounded queue drops the oldest, agent gives up",
+          rc != 0 and out.count("queue full (2); oldest payload dropped") == 2
+          and "Connection refused" in out and
+          "stopping with 2 payloads unsent" in out, out)
+
+    later = free_port()
+    reset()
+    timer = threading.Timer(2.5, lambda: State.__setattr__(
+        "late", start(port=later)))
+    timer.start()
+    rc, out = run(plain, conf(later), 3, drain=15)
+    timer.join()
+    late = getattr(State, "late", None)
+    check("collector starts late: queued exports delivered once it is up",
+          rc == 0 and len(accepted()) == 3 and "export failed" in out and
+          "3 sent" in out, out)
+    if late:
+        late[0].shutdown()
+        late[0].server_close()
+
+    rc, out = run(plain, conf(port, "tls = yes\n"), 1)
+    check("plain image refuses tls = yes",
+          rc != 0 and "built without TLS" in out, out)
+
+    rc, out = run(plain, "port = 4318\n", 1)
+    check("configuration without a host is refused",
+          rc != 0 and "no host given" in out, out)
+
+    with tempfile.TemporaryDirectory() as d:
+        make_cert(d)
+        srv, port = start(d)
+        ca = os.path.join(d, "collector.crt")
+
+        reset()
+        rc, out = run(tls, conf(port, f"tls = yes\ncafile = {ca}\n"), 2)
+        check("TLS with the collector's CA: verified and accepted",
+              rc == 0 and len(accepted()) == 2 and "TLS through" in out, out)
+
+        reset()
+        rc, out = run(tls, conf(port, "tls = yes\n"), 1, drain=2)
+        check("TLS without that CA: refused, nothing sent",
+              rc != 0 and len(State.seen) == 0 and
+              "TLS certificate: self-signed certificate" in out, out)
+
+        reset()
+        rc, out = run(plain, conf(port), 1, drain=2)
+        check("plain HTTP to the TLS port fails",
+              rc != 0 and len(accepted()) == 0, out)
+
+        reset()
+        rc, out = run(tls, conf(port, f"tls = yes\ncafile = {ca}\n"
+                                      "host = localhost\n"), 1, drain=2)
+        check("TLS to a name the certificate does not carry: refused",
+              rc != 0 and len(State.seen) == 0 and "TLS certificate" in out,
+              out)
+        srv.shutdown()
+        srv.server_close()
+
+    print(f"\n{'PASS' if failures == 0 else 'FAILURES'}: {failures}")
+    return 1 if failures else 0
+
+
 def validate_files(paths):
     """Validate each file as a request body. Exit status 1 if any fail."""
     failures = 0
@@ -212,7 +413,10 @@ def main():
     ap.add_argument("--port", type=int, default=4318)
     ap.add_argument("--selftest", nargs=2, metavar=("PLAIN", "TLS"))
     ap.add_argument("--validate", nargs="+", metavar="FILE")
+    ap.add_argument("--agent-selftest", nargs=2, metavar=("PLAIN", "TLS"))
     a = ap.parse_args()
+    if a.agent_selftest:
+        sys.exit(agent_selftest(*a.agent_selftest))
     if a.validate:
         sys.exit(validate_files(a.validate))
     if a.selftest:

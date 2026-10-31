@@ -42,18 +42,35 @@ typedef struct {
     size_t nextra;
 } vo_resource;
 
+/*
+ * The agent's own health, exported beside the system's under vmsotel.*
+ * (docs/design.md, Running it).
+ */
+typedef struct {
+    vo_u64 start_ns;            /* when the agent started */
+    vo_u64 exports_sent;        /* payloads the collector took */
+    vo_u64 exports_failed;      /* attempts that will be retried */
+    vo_u64 exports_dropped;     /* payloads lost: queue full, rejected */
+    vo_u32 queue_length;
+    vo_u64 collect_us;          /* the last collection's duration */
+    int have_skew;
+    long long skew_s;           /* our clock minus the collector's */
+} vo_agent_stats;
+
 enum {
     VO_OK = 0,
     VO_ESPACE = 1        /* buffer too small; *len is the size needed */
 };
 
 /*
- * Encodes res and snap into buf, of cap bytes. On VO_OK, *len is the
+ * Encodes res, snap and, unless it is NULL, stats into buf, of cap
+ * bytes. On VO_OK, *len is the
  * number of bytes written; the output is not NUL-terminated. On
  * VO_ESPACE, the buffer holds nothing usable and *len is the number of
  * bytes the payload needs, so a caller can report it or retry.
  */
 int vo_otlp_encode(const vo_resource *res, const vo_snapshot *snap,
+                   const vo_agent_stats *stats,
                    char *buf, size_t cap, size_t *len);
 
 #endif

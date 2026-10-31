@@ -92,6 +92,33 @@ static void num(jw *w, vo_u64 v)
     put(w, d + sizeof d - n, (size_t) n);
 }
 
+/* A signed number, for the clock skew. */
+static void snum(jw *w, long long v)
+{
+    if (v < 0) {
+        lit(w, "-");
+        num(w, (vo_u64) -(v + 1) + 1);
+    } else {
+        num(w, (vo_u64) v);
+    }
+}
+
+/* Microseconds as seconds, exactly: six decimals from integers. */
+static void us_seconds(jw *w, vo_u64 us)
+{
+    char frac[7];
+    vo_u64 f = us % 1000000;
+    int i;
+
+    num(w, us / 1000000);
+    frac[0] = '.';
+    for (i = 6; i >= 1; i--) {
+        frac[i] = (char) ('0' + (int) (f % 10));
+        f /= 10;
+    }
+    put(w, frac, 7);
+}
+
 /* A 64-bit integer field value: a decimal string. */
 static void qnum(jw *w, vo_u64 v)
 {
@@ -136,7 +163,7 @@ static void attr_str(jw *w, int *first, const char *key, const char *value)
 /* ---- metrics and points -------------------------------------------- */
 
 enum { M_COUNTER, M_UPDOWN, M_GAUGE };
-enum { V_INT, V_TICKS, V_SECONDS };
+enum { V_INT, V_TICKS, V_SECONDS, V_MICROS };
 
 typedef struct {
     jw *w;
@@ -201,6 +228,9 @@ static void point_n(mw *m, const vo_attr *attrs, size_t n,
     } else if (vkind == V_TICKS) {
         lit(w, ",\"asDouble\":");
         tick_seconds(w, value);
+    } else if (vkind == V_MICROS) {
+        lit(w, ",\"asDouble\":");
+        us_seconds(w, value);
     } else {
         lit(w, ",\"asDouble\":");
         num(w, value);
@@ -368,6 +398,42 @@ static void metrics(mw *m, const vo_snapshot *s)
     counter1(m, "openvms.io.buffered", "{operation}", &s->buffered_ios, now);
 }
 
+/*
+ * The agent's own health. vmsotel.exports counts payloads by outcome:
+ * sent, failed (an attempt that will be retried) and dropped (lost to a
+ * full queue or a rejection). The rest are gauges of the moment.
+ */
+static void agent_metrics(mw *m, const vo_agent_stats *a, vo_u64 now)
+{
+    metric_begin(m, "vmsotel.exports", "{request}", M_COUNTER);
+    point(m, "vmsotel.outcome", "sent", NULL, NULL, a->start_ns, now, V_INT,
+          a->exports_sent);
+    point(m, "vmsotel.outcome", "failed", NULL, NULL, a->start_ns, now, V_INT,
+          a->exports_failed);
+    point(m, "vmsotel.outcome", "dropped", NULL, NULL, a->start_ns, now,
+          V_INT, a->exports_dropped);
+    metric_end(m);
+
+    metric_begin(m, "vmsotel.queue.length", "{request}", M_GAUGE);
+    point(m, NULL, NULL, NULL, NULL, 0, now, V_INT, a->queue_length);
+    metric_end(m);
+
+    metric_begin(m, "vmsotel.collection.duration", "s", M_GAUGE);
+    point(m, NULL, NULL, NULL, NULL, 0, now, V_MICROS, a->collect_us);
+    metric_end(m);
+
+    if (a->have_skew) {
+        /* Signed, so written here rather than through point(). */
+        metric_begin(m, "vmsotel.clock.skew", "s", M_GAUGE);
+        lit(m->w, "{\"timeUnixNano\":");
+        qnum(m->w, now);
+        lit(m->w, ",\"asDouble\":");
+        snum(m->w, a->skew_s);
+        lit(m->w, "}");
+        metric_end(m);
+    }
+}
+
 /* ---- the request --------------------------------------------------- */
 
 static void resource(jw *w, const vo_resource *res)
@@ -396,6 +462,7 @@ static void resource(jw *w, const vo_resource *res)
 }
 
 int vo_otlp_encode(const vo_resource *res, const vo_snapshot *snap,
+                   const vo_agent_stats *stats,
                    char *buf, size_t cap, size_t *len)
 {
     jw w;
@@ -421,6 +488,8 @@ int vo_otlp_encode(const vo_resource *res, const vo_snapshot *snap,
     str(&w, VO_SCHEMA_URL);
     lit(&w, ",\"metrics\":[");
     metrics(&m, snap);
+    if (stats != NULL)
+        agent_metrics(&m, stats, snap->raw->now_ns);
     lit(&w, "]}]}]}");
 
     *len = w.len;

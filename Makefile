@@ -27,16 +27,24 @@ B = build
 VMS_PROBES = $(B)/probe_syi $(B)/probe_rmi $(B)/probe_jpi $(B)/probe_dvi
 PROBES = $(VMS_PROBES) $(B)/probe_otlp $(B)/probe_otlp_tls
 
-# The agent: portable C99, so the full strict flags.
+# The agent: portable C99, so the full strict flags. platform_posix.c
+# asks for POSIX itself.
 # Plain file names in #include, with each directory on the path: VSI C
 # taking "model/model.h" relative to /INCLUDE_DIRECTORY is unproven.
-AGENT_CFLAGS = $(STRICT) -Isrc/model -Isrc/otlp -Itests
-MODEL_OBJ = $(B)/model.o
-OTLP_OBJ  = $(B)/otlp_json.o
-TESTS = $(B)/test_model $(B)/test_otlp
+AGENT_INC = -Isrc/model -Isrc/otlp -Isrc/platform -Isrc/transport \
+            -Isrc/sources -Isrc/agent -Itests
+AGENT_CFLAGS = $(STRICT) $(AGENT_INC)
+AGENT_HDRS = $(wildcard src/*/*.h) $(wildcard tests/*.h)
+
+# Objects that do not change with TLS, and the two that do.
+CORE_OBJ = $(B)/model.o $(B)/otlp_json.o $(B)/platform_posix.o \
+           $(B)/queue.o $(B)/config.o $(B)/fake_source.o
+AGENTS = $(B)/vmsotel $(B)/vmsotel_tls
+
+TESTS = $(B)/test_model $(B)/test_otlp $(B)/test_transport
 GOLDEN = tests/golden/full.json tests/golden/minimal.json
 
-ALL = $(PROBES) $(TESTS)
+ALL = $(PROBES) $(TESTS) $(AGENTS)
 
 all: $(ALL)
 
@@ -58,20 +66,46 @@ $(B)/probe_otlp: probes/probe_otlp.c | $(B)
 $(B)/probe_otlp_tls: probes/probe_otlp.c | $(B)
 	$(CC) $(STRICT) -DWITH_TLS -o $@ $< -lssl -lcrypto
 
-$(B)/model.o: src/model/model.c src/model/model.h src/model/vo_types.h | $(B)
+$(B)/model.o: src/model/model.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/otlp_json.o: src/otlp/otlp_json.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/platform_posix.o: src/platform/platform_posix.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/queue.o: src/transport/queue.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/config.o: src/agent/config.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/fake_source.o: src/sources/fake/fake_source.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 
-$(B)/otlp_json.o: src/otlp/otlp_json.c src/otlp/otlp_json.h src/model/model.h src/model/vo_types.h | $(B)
+$(B)/http.o: src/transport/http.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/agent.o: src/agent/agent.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/http_tls.o: src/transport/http.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -DVO_WITH_TLS -c -o $@ $<
+$(B)/agent_tls.o: src/agent/agent.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -DVO_WITH_TLS -c -o $@ $<
+$(B)/tls.o: src/transport/tls.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -DVO_WITH_TLS -c -o $@ $<
+
+$(B)/vmsotel: $(B)/agent.o $(B)/http.o $(CORE_OBJ)
+	$(CC) -o $@ $^
+$(B)/vmsotel_tls: $(B)/agent_tls.o $(B)/http_tls.o $(B)/tls.o $(CORE_OBJ)
+	$(CC) -o $@ $^ -lssl -lcrypto
+
+$(B)/fixture.o: tests/fixture.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 
-$(B)/fixture.o: tests/fixture.c tests/fixture.h src/model/model.h src/otlp/otlp_json.h | $(B)
-	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/test_model: tests/test_model.c $(B)/fixture.o $(B)/model.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o
 
-$(B)/test_model: tests/test_model.c tests/check.h $(B)/fixture.o $(MODEL_OBJ) | $(B)
-	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(MODEL_OBJ)
+$(B)/test_otlp: tests/test_otlp.c $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o
 
-$(B)/test_otlp: tests/test_otlp.c tests/check.h $(B)/fixture.o $(MODEL_OBJ) $(OTLP_OBJ) | $(B)
-	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(MODEL_OBJ) $(OTLP_OBJ)
+$(B)/test_transport: tests/test_transport.c $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o
 
 # The generated tables are committed; regenerate them when the lists
 # in gen_items.py change.
@@ -86,7 +120,9 @@ golden: $(B)/test_otlp
 check: all
 	$(B)/test_model
 	$(B)/test_otlp tests/golden
+	$(B)/test_transport vmsotel.conf.example
 	$(PYTHON) -I tools/fake_collector.py --validate $(GOLDEN)
+	$(PYTHON) -I tools/fake_collector.py --agent-selftest $(B)/vmsotel $(B)/vmsotel_tls
 	for p in $(VMS_PROBES); do echo "== $$p"; $$p || exit 1; done
 	$(PYTHON) -I tools/fake_collector.py --selftest $(B)/probe_otlp $(B)/probe_otlp_tls
 

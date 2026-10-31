@@ -87,3 +87,16 @@ void fixture_resource(vo_resource *res)
     res->scsnode = "X86VMS";
     res->cluster_member = 0;
 }
+
+void fixture_stats(vo_agent_stats *st)
+{
+    memset(st, 0, sizeof *st);
+    st->start_ns = FIX_NOW_NS - 3600000000000ULL;   /* an hour ago */
+    st->exports_sent = 58;
+    st->exports_failed = 3;
+    st->exports_dropped = 1;
+    st->queue_length = 2;
+    st->collect_us = 1234;
+    st->have_skew = 1;
+    st->skew_s = -7;
+}

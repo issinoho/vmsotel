@@ -14,7 +14,13 @@ MIT licensed (`LICENSE`).
 - `src/model/` — one reading of the system, and 32-to-64-bit counter
   widening
 - `src/otlp/` — the OTLP JSON encoder
-- `tests/` — unit tests and golden payloads for both
+- `src/platform/` — the platform interface, and its POSIX implementation
+- `src/transport/` — HTTP/1.1 POST, TLS over memory BIOs, the export
+  queue
+- `src/sources/` — the source interface; `fake/` has scripted values
+- `src/agent/` — the configuration file and the collect-and-send loop
+- `vmsotel.conf.example` — every configuration key, explained
+- `tests/` — unit tests and golden payloads
 - `probes/` — six probes: four system-service probes, and the OTLP
   export without and with TLS
 - `collector/` — collector configuration for docker-nuc
@@ -30,7 +36,9 @@ make check
 ```
 
 That runs the agent's unit tests, checks the encoder's golden
-payloads (`tests/golden/`) against the OTLP schema, builds every probe,
+payloads (`tests/golden/`) against the OTLP schema, runs the agent
+against the fake collector (retries, `Retry-After`, rejection, a
+collector that is down, TLS verification), builds every probe,
 runs the four system-service probes against
 the stub, and runs `probe_otlp` and `probe_otlp_tls` against the fake
 collector — including the cases that must fail (an HTTP 503, an hour
@@ -39,6 +47,19 @@ of clock skew, plain HTTP to a TLS port). With the
 (`PYTHON=/path/to/venv/bin/python make check`) the fake collector
 parses every payload against the official schema; without it, only the
 JSON syntax is checked, and it says so.
+
+## The agent on Linux
+
+`make` builds `build/vmsotel` (plain HTTP) and `build/vmsotel_tls`.
+On Linux they read the fake source, so they send scripted values, not
+this machine's. Point a configuration at a collector and run it; it
+logs to standard output and runs until stopped:
+
+```sh
+cp vmsotel.conf.example my.conf      # edit host and port
+build/vmsotel my.conf
+build/vmsotel my.conf --cycles 3     # three collections, then stop
+```
 
 ## On docker-nuc: the collector
 

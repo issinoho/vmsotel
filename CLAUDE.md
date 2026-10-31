@@ -7,9 +7,12 @@ change it without wasting a round trip to a machine you cannot reach.
 vmsotel is an OpenTelemetry host-metrics agent for OpenVMS: it reads
 the system services and posts OTLP/HTTP JSON to a collector on Linux.
 The probes have been run on both machines (`docs/findings.md`).
-Phase 1 is under way: step 2a, the model (`src/model/`) and the OTLP
-JSON encoder (`src/otlp/`), is done and tested on Linux. Nothing of the
-agent has run on VMS, and no VMS build file for it exists yet.
+Phase 1 is under way. Steps 2a and 2b are done and tested on Linux:
+the model, the OTLP JSON encoder, the platform interface with a POSIX
+implementation, HTTP and TLS transport, the export queue, a fake
+source, and the agent loop (`build/vmsotel`, `build/vmsotel_tls`).
+Nothing of the agent has run on VMS, and no VMS build file for it
+exists yet; that is step 2c.
 
 ## Where it lives
 
@@ -33,6 +36,8 @@ make check     # the agent's unit tests; the encoder's golden
                # payloads against the OTLP schema; all probes against
                # stub/ and tools/fake_collector.py
 make golden    # rewrite tests/golden/ from the encoder
+
+build/vmsotel vmsotel.conf.example     # the agent, fake source
 ```
 
 A golden payload changes only on purpose: run `make golden`, then read

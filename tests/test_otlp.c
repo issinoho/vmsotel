@@ -18,7 +18,8 @@
 
 static char out[BIG];
 
-static size_t encode(const vo_raw *r, const vo_resource *res)
+static size_t encode_with(const vo_raw *r, const vo_resource *res,
+                          const vo_agent_stats *stats)
 {
     vo_state st;
     vo_snapshot s;
@@ -26,10 +27,15 @@ static size_t encode(const vo_raw *r, const vo_resource *res)
 
     vo_state_init(&st);
     vo_model_update(&st, r, &s);
-    CHECK(vo_otlp_encode(res, &s, out, sizeof out, &len) == VO_OK);
+    CHECK(vo_otlp_encode(res, &s, stats, out, sizeof out, &len) == VO_OK);
     if (len < sizeof out)
         out[len] = '\0';
     return len;
+}
+
+static size_t encode(const vo_raw *r, const vo_resource *res)
+{
+    return encode_with(r, res, NULL);
 }
 
 static int golden(const char *dir, const char *name, int write,
@@ -89,7 +95,7 @@ static void test_buffer_sizes(void)
     vo_state_init(&st);
     vo_model_update(&st, &r, &s);
 
-    CHECK(vo_otlp_encode(&res, &s, out, sizeof out, &need) == VO_OK);
+    CHECK(vo_otlp_encode(&res, &s, NULL, out, sizeof out, &need) == VO_OK);
 
     /* Exactly the size needed, with a guard byte after it. */
     buf = malloc(need + 1);
@@ -97,7 +103,7 @@ static void test_buffer_sizes(void)
     if (buf == NULL)
         return;
     buf[need] = 'Z';
-    CHECK(vo_otlp_encode(&res, &s, buf, need, &len) == VO_OK);
+    CHECK(vo_otlp_encode(&res, &s, NULL, buf, need, &len) == VO_OK);
     CHECK_U64(len, need);
     CHECK(memcmp(buf, out, need) == 0);
     CHECK(buf[need] == 'Z');
@@ -105,13 +111,13 @@ static void test_buffer_sizes(void)
     /* One byte short: an error, the size needed, and nothing written
        past the end. */
     buf[need - 1] = 'Z';
-    CHECK(vo_otlp_encode(&res, &s, buf, need - 1, &len) == VO_ESPACE);
+    CHECK(vo_otlp_encode(&res, &s, NULL, buf, need - 1, &len) == VO_ESPACE);
     CHECK_U64(len, need);
     CHECK(buf[need - 1] == 'Z');
 
     /* No room at all. */
     buf[0] = 'Z';
-    CHECK(vo_otlp_encode(&res, &s, buf, 0, &len) == VO_ESPACE);
+    CHECK(vo_otlp_encode(&res, &s, NULL, buf, 0, &len) == VO_ESPACE);
     CHECK_U64(len, need);
     CHECK(buf[0] == 'Z');
     free(buf);
@@ -242,12 +248,49 @@ static void test_shape(void)
     CHECK_CONTAINS(out, "\"asInt\":\"41041274\"}");
 }
 
+static void test_agent_stats(void)
+{
+    vo_raw r;
+    vo_resource res;
+    vo_agent_stats a;
+
+    fixture_minimal(&r);
+    fixture_resource(&res);
+    encode(&r, &res);
+    CHECK(strstr(out, "vmsotel.") == NULL);         /* NULL: none */
+
+    fixture_stats(&a);
+    encode_with(&r, &res, &a);
+    CHECK_CONTAINS(out, "\"name\":\"vmsotel.exports\"");
+    CHECK_CONTAINS(out, "\"failed\"}}],\"startTimeUnixNano\":"
+                        "\"1793474269000000000\",\"timeUnixNano\":"
+                        "\"1793477869000000000\",\"asInt\":\"3\"}");
+    CHECK_CONTAINS(out, "\"name\":\"vmsotel.collection.duration\",\"unit\":"
+                        "\"s\",\"gauge\":{\"dataPoints\":[{\"timeUnixNano\":"
+                        "\"1793477869000000000\",\"asDouble\":0.001234}]}}");
+    CHECK_CONTAINS(out, "\"name\":\"vmsotel.clock.skew\",\"unit\":\"s\","
+                        "\"gauge\":{\"dataPoints\":[{\"timeUnixNano\":"
+                        "\"1793477869000000000\",\"asDouble\":-7}]}}");
+
+    /* Extremes of the signed and microsecond writers. */
+    a.skew_s = -9223372036854775807LL - 1;
+    a.collect_us = 12000001;
+    encode_with(&r, &res, &a);
+    CHECK_CONTAINS(out, "\"asDouble\":-9223372036854775808}");
+    CHECK_CONTAINS(out, "\"asDouble\":12.000001}");
+    a.skew_s = 0;
+    a.have_skew = 0;
+    encode_with(&r, &res, &a);
+    CHECK(strstr(out, "vmsotel.clock.skew") == NULL);
+}
+
 int main(int argc, char **argv)
 {
     int write = argc == 3 && strcmp(argv[1], "--write") == 0;
     const char *dir = write ? argv[2] : (argc == 2 ? argv[1] : NULL);
     vo_raw r;
     vo_resource res;
+    vo_agent_stats a;
     size_t len;
 
     if (dir == NULL) {
@@ -256,8 +299,9 @@ int main(int argc, char **argv)
     }
 
     fixture_resource(&res);
+    fixture_stats(&a);
     fixture_full(&r);
-    len = encode(&r, &res);
+    len = encode_with(&r, &res, &a);
     golden(dir, "full.json", write, out, len);
     fixture_minimal(&r);
     len = encode(&r, &res);
@@ -270,5 +314,6 @@ int main(int argc, char **argv)
     test_numbers();
     test_optional_parts();
     test_shape();
+    test_agent_stats();
     return check_summary("test_otlp");
 }

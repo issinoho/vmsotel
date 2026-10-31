@@ -17,5 +17,6 @@
 void fixture_full(vo_raw *r);        /* every part present, three disks */
 void fixture_minimal(vo_raw *r);     /* no pagefile, no disks, no CPU */
 void fixture_resource(vo_resource *res);
+void fixture_stats(vo_agent_stats *st);  /* x86-like: 7 s slow */
 
 #endif

@@ -1,0 +1,31 @@
+# vmsotel configuration: key = value, one per line. Lines starting
+# with # or ! are comments. Only host is required.
+
+# The collector. Port 4318 is OTLP/HTTP; the test collector on
+# docker-nuc also listens with TLS on 4319.
+host = 192.168.0.218
+port = 4318
+# path = /v1/metrics
+
+# TLS. The certificate is always verified: against cafile if given,
+# otherwise the system's default CAs. A certificate for an address
+# needs that address as an IP SAN, and host must be the address.
+# tls = yes
+# cafile = collector.crt
+
+# Seconds between collections (1 to 86400).
+interval = 60
+
+# Seconds to wait for a connection, or for each read of a reply.
+# timeout = 10
+
+# Exports kept while the collector cannot be reached; when full, the
+# oldest is dropped (1 to 64).
+# queue = 10
+
+# Largest payload, in bytes. A host with many disks may need more; the
+# log says how much when it does.
+# max_payload = 131072
+
+# Extra resource attributes, sent with every export.
+# resource.deployment.environment = lab

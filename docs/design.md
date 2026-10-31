@@ -113,10 +113,20 @@ Two choices the encoder makes:
   with two decimals, built from integers, so no floating-point
   formatting is involved on either architecture.
 
-Responses: 200 is success, but the body may carry `partialSuccess` with
-`rejectedDataPoints`, which is logged. 429 and 503 are retried with
-backoff, honouring `Retry-After`. Any other 4xx is a bug in the encoder
-and is logged loudly, not retried.
+Responses (`src/transport/http.c`): a 2xx is success, but the body may
+carry `partialSuccess` with `rejectedDataPoints`, which is logged. 429,
+any 5xx, and no answer at all are retried, keeping the payload; any
+other status means the request itself is wrong, so the payload is
+dropped and logged loudly, not retried.
+
+Retries back off from 1 s, doubling, but never past the collection
+interval, so a long outage costs one attempt per interval. A
+`Retry-After` (seconds, or an HTTP date) longer than that wins, up to an
+hour.
+
+Each export is its own connection with `Connection: close`. At one
+request a minute that costs nothing worth saving, and it leaves no idle
+connection for a firewall or a collector restart to break.
 
 No compression in version 1. A full host export is a few kilobytes
 every 30 to 60 seconds; gzip can come later if zlib proves to be
@@ -139,8 +149,8 @@ That check cannot see a VMS clock that is simply wrong, and both test
 machines' were: 7 and 13 s slow against an NTP-synced collector
 (`docs/findings.md`). So the agent also reads the `Date` header of every
 collector response, as `probe_otlp` does, reports the difference as its
-own metric (`openvms.agent.clock.skew`, seconds), and logs a warning
-past a few seconds. It does not correct its timestamps: the fix is NTP
+own metric (`vmsotel.clock.skew`, seconds), and logs a warning once
+when it passes 2 s and once when it comes back. It does not correct its timestamps: the fix is NTP
 on the VMS node, and a silent correction would hide that.
 
 The differential for that check is translated from `LNM$SYSTEM_TABLE`,
@@ -286,9 +296,10 @@ is found.
 
 - A detached process, started from `SYSTARTUP_VMS.COM` the same way
   vmsguard's gateway is (`RUN/DETACHED`, output to a log file).
-- Configuration in a small `key = value` file: collector URL, interval
-  (default 60 s), TLS CA file, extra resource attributes, process
-  filter.
+- Configuration in a small `key = value` file (`src/agent/config.c`,
+  `vmsotel.conf.example`): host, port, path, tls, cafile, interval
+  (default 60 s), timeout, queue, max_payload, and `resource.*` extra
+  attributes. The process filter comes with phase 2.
 - **Privilege**: none. `$GETRMI` needs none on either machine.
   Per-process metrics need WORLD: an unprivileged scan saw only its own
   user's processes (x86 3 of 41, I64 3 of 43). That is phase 2 and
@@ -300,15 +311,32 @@ is found.
   unreachable, a bounded queue keeps the last N exports (default 10) and
   drops the oldest. A VMS production box must never fill its disk or
   its memory because a monitoring server is down.
-- The agent's own health goes in its own metrics: export failures,
-  queue length, collection time.
+- The agent's own health goes in its own metrics, beside the system's:
+  `vmsotel.exports` by `vmsotel.outcome` (sent; failed, an attempt that
+  will be retried; dropped, a payload lost to a full queue, a rejection
+  or `max_payload`), `vmsotel.queue.length`,
+  `vmsotel.collection.duration` and `vmsotel.clock.skew`.
+- The log is standard output, one line per event, UTC: start, failures
+  and their reasons, drops, a CPU mode given up, clock warnings.
 
 ## TLS
 
-Through the installed OpenSSL, choosing 3.x or 1.1.1 the way vmsguard
-does, with the same care over the `OPENSSL` logical and pointer size.
-Certificates are verified by default against a configured CA file; no
-"skip verification" option in the agent itself. *(probe: `probe_otlp_tls`)*
+Through the installed OpenSSL, 3.x or 1.1.1, with the same care over
+the `OPENSSL` logical and pointer size as vmsguard. Every call
+`src/transport/tls.c` makes exists in both, so there is no version
+branch; what it keeps from vmsguard is the check that the headers match
+the image linked (`VO_EXPECT_OPENSSL_1` or `_3`, set by the build),
+which turns a mismatch into a compile error.
+
+OpenSSL never sees a socket. It reads and writes memory BIOs, and
+`tls.c` moves the bytes through the platform interface, so TLS works
+over a `$QIO` implementation as well as over POSIX sockets.
+
+The certificate is always verified, against `cafile` or the system's
+default CAs, and the host name or address checked (an address against
+an IP SAN, and never sent as SNI). There is no option to skip that.
+TLS 1.2 is the minimum. *(probe: `--cafile` verification on VMS,
+findings question 22)*
 
 ## Testing
 
