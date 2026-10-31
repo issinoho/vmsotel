@@ -123,6 +123,14 @@ against the collector's `Date` header.)*
 The agent will compare the two at startup and refuse to run if they
 disagree by more than a few seconds, saying why.
 
+That check cannot see a VMS clock that is simply wrong, and both test
+machines' were: 7 and 13 s slow against an NTP-synced collector
+(`docs/findings.md`). So the agent also reads the `Date` header of every
+collector response, as `probe_otlp` does, reports the difference as its
+own metric (`openvms.agent.clock.skew`, seconds), and logs a warning
+past a few seconds. It does not correct its timestamps: the fix is NTP
+on the VMS node, and a silent correction would hide that.
+
 The differential for that check is translated from `LNM$SYSTEM_TABLE`,
 not read with `getenv`: on x86 a process-level
 `SYS$TIMEZONE_DIFFERENTIAL` changed what `getenv` saw but not what
@@ -315,5 +323,5 @@ and the numbers in MONITOR are the other end.
 | ~~Does `printf` support `%llu`~~ — yes | every probe's first line |
 | ~~TCP and an HTTP exchange to the collector~~ — yes; collector side not yet seen | `probe_otlp` |
 | ~~libssl image names; TLS handshake~~ — SSL3 (3.0.21 / 3.0.22), TLS 1.3 | `probe_otlp_tls`, `build_probes.com` |
-| Which clock is wrong: x86 7 s and I64 14 s behind docker-nuc | `timedatectl` on docker-nuc |
+| ~~Which clock is wrong~~ — the VMS ones: x86 7 s, I64 13 s slow | laptop vs collector `Date` |
 | Is zlib available (gzip) | later |

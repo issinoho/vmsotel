@@ -131,6 +131,12 @@ what it changes in the design.
   `PROCS` is not "all processes".
 - **I64: `RMI$_CPUINTSTK` is an ordinary counter** (`695781`, steady).
   The negative, falling value is x86-only.
+- **Settled: the VMS clocks are wrong, not docker-nuc.** 21:57 UTC,
+  from the development laptop (`System clock synchronized: yes`,
+  `NTP service: active`): three POSTs to the collector gave `laptop
+  minus collector: 0 s` each time. So x86 is 7–8 s slow and I64 13–14 s.
+  x86 shows no NTP process in SHOW SYSTEM; I64 runs `TCPIP$NTP_1` but
+  is not keeping time.
 - **The two VMS clocks disagree with each other.** I64 is 13–14 s
   behind the collector (`-14 s`, `-13 s`), x86 7–8 s, so at least one
   VMS clock is wrong whatever docker-nuc says. I64 runs NTP
