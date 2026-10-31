@@ -46,17 +46,66 @@ static rmi_result first[RMI_ITEMS_COUNT], second[RMI_ITEMS_COUNT];
  * One item per call. The buffer is offered as a quadword first; if the
  * service insists on exactly a longword, it is asked again with 4.
  *
- * The buffer itself is much larger than what is offered, static rather
- * than on the stack, and filled with a pattern first. The first x86 run
- * crashed in here with an ACCVIO writing to address 0x14, which looks
- * like a corrupted pointer: the likeliest cause is an item that writes
- * more than the length it was given and overwrote the stack. Here an
- * overrun lands in our own buffer, and the pattern shows how far it went.
+ * Nothing the service is given lives on the stack. On x86 the first
+ * $GETRMI call returned, and then the loop in sample() faulted reading
+ * rmi_items[1].code at address 0x14: the table's base address had become
+ * 0. The fault was the same with a 4 KB static data buffer, so it is not
+ * the data. The likeliest cause is the service writing the IOSB or the
+ * return length wider than its 8 or 2 bytes, zeroing a saved pointer
+ * beside it on the stack.
+ *
+ * So the IOSB, the return length and the item list sit in one static
+ * block, between bytes filled with a pattern. After each call, guard()
+ * reports any pattern byte that changed, which says which one was
+ * written too wide and by how much. In the first sample each call's raw
+ * results are printed before anything else runs, so even if the image
+ * still dies afterwards, what the service returned is in the log.
  */
 #define RMI_BUF_SIZE 4096
 #define RMI_FILL 0xA5
+#define GUARD 32
 
 static unsigned char rmi_buf[RMI_BUF_SIZE];
+
+/* [GUARD] iosb(8) [GUARD] retlen(2) [GUARD-2] item list(2 entries) [GUARD] */
+#define OFF_IOSB   GUARD
+#define OFF_RETLEN (OFF_IOSB + 8 + GUARD)
+#define OFF_ILE    (OFF_RETLEN + GUARD)
+#define ILE_BYTES  (2 * sizeof(probe_ile3))
+#define BLOCK_SIZE (OFF_ILE + ILE_BYTES + GUARD)
+
+static union {
+    unsigned long long align;   /* quadword-aligned, as an IOSB must be */
+    unsigned char b[BLOCK_SIZE];
+} blk;
+
+static int in_use(unsigned i)
+{
+    return (i >= OFF_IOSB && i < OFF_IOSB + 8) ||
+           (i >= OFF_RETLEN && i < OFF_RETLEN + 2) ||
+           (i >= OFF_ILE && i < OFF_ILE + ILE_BYTES);
+}
+
+/* Prints every guard byte the service changed. Returns how many. */
+static unsigned guard_report(void)
+{
+    unsigned i, n = 0;
+
+    for (i = 0; i < BLOCK_SIZE; i++)
+        if (!in_use(i) && blk.b[i] != RMI_FILL) {
+            if (n == 0)
+                printf("    GUARD changed:");
+            printf(" %s+%d=%02x",
+                   i < OFF_RETLEN ? "iosb" : i < OFF_ILE ? "retlen" : "itmlst",
+                   i < OFF_RETLEN ? (int) i - OFF_IOSB :
+                   i < OFF_ILE ? (int) i - OFF_RETLEN : (int) i - OFF_ILE,
+                   blk.b[i]);
+            n++;
+        }
+    if (n)
+        printf("\n");
+    return n;
+}
 
 /* Index one past the last byte that no longer holds the fill pattern.
    A written byte that happens to equal the pattern makes this an
@@ -70,35 +119,56 @@ static unsigned written_extent(void)
     return n;
 }
 
-static void query_one(const probe_item *it, rmi_result *r)
+static unsigned guard_hits;
+
+static void query_one(const probe_item *it, rmi_result *r, int trace)
 {
     static const unsigned short sizes[2] = { 8, 4 };
+    unsigned short *iosb = (unsigned short *) (blk.b + OFF_IOSB);
+    unsigned short *retlen = (unsigned short *) (blk.b + OFF_RETLEN);
+    probe_ile3 *ile = (probe_ile3 *) (blk.b + OFF_ILE);
     int attempt;
 
     memset(r, 0, sizeof *r);
     for (attempt = 0; attempt < 2; attempt++) {
-        unsigned short retlen = 0;
-        unsigned short iosb[4] = { 0, 0, 0, 0 };
-        probe_ile3 ile[2];
-        unsigned int st;
-        unsigned extent;
+        unsigned int st, st_q;
+        unsigned extent, hits;
 
         memset(rmi_buf, RMI_FILL, sizeof rmi_buf);
-        memset(ile, 0, sizeof ile);
+        memset(blk.b, RMI_FILL, sizeof blk.b);
+        memset(iosb, 0, 8);
+        *retlen = 0;
+        memset(ile, 0, ILE_BYTES);
         ile[0].len = sizes[attempt];
         ile[0].code = (unsigned short) it->code;
         ile[0].buf = rmi_buf;
-        ile[0].retlen = &retlen;
+        ile[0].retlen = retlen;
 
         /* $GETRMI has no W form: queue it, then wait on the IOSB. */
-        st = sys$getrmi(EFN$C_ENF, 0, 0, (void *) ile, (void *) iosb, 0, 0);
+        st_q = st = sys$getrmi(EFN$C_ENF, 0, 0, (void *) ile, (void *) iosb, 0, 0);
         if (st & 1)
             st = sys$synch(EFN$C_ENF, (void *) iosb);
+
+        extent = written_extent();
+        if (trace) {
+            printf("    len %u: queue %08X synch %08X iosb %04X %04X %04X %04X"
+                   " retlen %u wrote %u\n",
+                   (unsigned) sizes[attempt], st_q, st,
+                   iosb[0], iosb[1], iosb[2], iosb[3],
+                   (unsigned) *retlen, extent);
+            fflush(stdout);
+        }
+        hits = guard_report();
+        if (hits) {
+            if (!trace)
+                printf("    (%s, len %u)\n", it->name, (unsigned) sizes[attempt]);
+            guard_hits++;
+            fflush(stdout);
+        }
+
         if ((st & 1) && !(iosb[0] & 1))
             st = iosb[0];
         r->status = st;
-
-        extent = written_extent();
         if (extent > sizes[attempt]) {
             r->overrun = extent;
             r->offered = sizes[attempt];
@@ -106,7 +176,7 @@ static void query_one(const probe_item *it, rmi_result *r)
         }
         if (st & 1) {
             r->accepted = 1;
-            r->retlen = retlen ? retlen : sizes[attempt];
+            r->retlen = *retlen ? *retlen : sizes[attempt];
             r->value = probe_le(rmi_buf, sizes[attempt]);
             return;
         }
@@ -115,20 +185,26 @@ static void query_one(const probe_item *it, rmi_result *r)
     }
 }
 
-/* Names each item before asking for it, so that if the service still
-   brings the image down, the last name printed is the culprit. */
+/*
+ * Names each item before asking for it, so that if the service still
+ * brings the image down, the last name printed is the culprit. The
+ * index is static and volatile so it is re-read from memory after each
+ * call rather than trusted to a register the service might not have
+ * preserved; if the crash stops with no guard changed, that is the
+ * likelier cause.
+ */
+static volatile size_t sample_i;
+
 static void sample(rmi_result *out, int trace)
 {
-    size_t i;
-
-    for (i = 0; i < RMI_ITEMS_COUNT; i++) {
-        if (rmi_items[i].code == PROBE_UNDECLARED)
+    for (sample_i = 0; sample_i < RMI_ITEMS_COUNT; sample_i++) {
+        if (rmi_items[sample_i].code == PROBE_UNDECLARED)
             continue;
         if (trace) {
-            printf("  querying %s\n", rmi_items[i].name);
+            printf("  querying %s\n", rmi_items[sample_i].name);
             fflush(stdout);
         }
-        query_one(&rmi_items[i], &out[i]);
+        query_one(&rmi_items[sample_i], &out[sample_i], trace);
     }
 }
 
@@ -223,6 +299,11 @@ int main(void)
             cpu_sum += b->value - a->value;
             cpu_items++;
         }
+    }
+
+    if (guard_hits) {
+        printf("\n");
+        probe_fail("$GETRMI wrote outside its IOSB or return length");
     }
 
     printf("\nCPU mode counters\n");
