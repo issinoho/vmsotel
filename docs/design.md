@@ -94,12 +94,24 @@ that bite:
   **decimal strings**
 - unknown fields are an error to a strict parser
 
-The encoder writes into a caller-supplied buffer with explicit length
-checks, no allocation, in the style of vmsguard's wire code. Its tests
-compare against fixtures that have been parsed by protobuf's own JSON
-parser against the official schema (`tools/fake_collector.py` does
-this with the `opentelemetry-proto` package). That check is a
-development-time tool; nothing on VMS needs Python.
+The encoder (`src/otlp/`) writes into a caller-supplied buffer with
+explicit length checks and no allocation. When the payload does not
+fit it returns `VO_ESPACE` with the size it needs. Its tests compare
+against golden payloads (`tests/golden/`) that `make check` parses with
+protobuf's own JSON parser against the official schema
+(`tools/fake_collector.py --validate`, with the `opentelemetry-proto`
+package). That check is a development-time tool; nothing on VMS needs
+Python.
+
+Two choices the encoder makes:
+
+- **Text is escaped as Latin-1.** VMS names and labels are DEC MCS,
+  not UTF-8, and protobuf's parser rejects invalid UTF-8. Every byte
+  above 127 is written as `\u00XX`, which is right for every printable
+  DEC MCS character.
+- **CPU seconds are written exactly.** 10 ms ticks become `ticks/100`
+  with two decimals, built from integers, so no floating-point
+  formatting is involved on either architecture.
 
 Responses: 200 is success, but the body may carry `partialSuccess` with
 `rejectedDataPoints`, which is logged. 429 and 503 are retried with
@@ -163,6 +175,15 @@ routinely. The agent widens each 32-bit counter to 64 bits by adding
 loses the widening, so after a restart it reports a new start time
 instead of a value that has gone backwards.
 
+As built (`src/model/`, `vo_wide_update`): a widened counter's start
+time is when the agent first saw it. A reading lower than the last by
+2^31 or more is a wrap; a smaller drop is a reset (a disk remounted,
+say), which zeroes the widening and takes a new start time. Disk
+counters are widened per device name, in a table of 64; a disk beyond
+that is reported without `system.disk.operations`. A quadword CPU mode
+counter that goes backwards (x86's interrupt counter) is dropped for
+the life of the agent, and reported once so the agent can log it.
+
 This is not hypothetical. On both machines only the `RMI$_CPU*` modes,
 `FRLIST` and `MODLIST` are quadwords; every other `RMI$_` counter, and
 `DVI$_OPCNT`, is a longword. The Itanium's system disk had counted
@@ -175,24 +196,32 @@ unsigned.
 Names follow the OpenTelemetry semantic conventions for `system.*`
 where one fits, so that existing host dashboards work. The conventions
 have been renaming attributes (`state` became `cpu.mode`, and so on), so
-the exact set is pinned to one semantic-conventions release at
-implementation time.
+the set is pinned: **semantic conventions v1.44.0** (released
+2026-08-04), schema URL `https://opentelemetry.io/schemas/1.44.0`,
+`VO_SEMCONV_VERSION` in `src/otlp/otlp_json.h`.
+
+Types follow the convention's instrument: a *counter* is a monotonic
+cumulative sum, an *updowncounter* a non-monotonic cumulative sum, and
+only `system.uptime` is a gauge. That is how the collector's own
+`hostmetrics` receiver sends them, so dashboards built on it read these
+the same way. Up-down counters carry the boot time as their start
+time; widened counters carry their own (see Counters).
 
 | Metric | Type | Unit | Source | Notes |
 | --- | --- | --- | --- | --- |
-| `system.cpu.time` | sum | s | `RMI$_CPU*` | attribute `cpu.mode`; see mapping below. Quadword 10 ms ticks on both machines, summed over all CPUs (shown on x86; I64 has one CPU) |
-| `system.cpu.logical.count` | gauge | {cpu} | `SYI$_ACTIVECPU_CNT` | |
-| `system.memory.usage` | gauge | By | `RMI$_FRLIST`, `RMI$_MODLIST`, `SYI$_MEMSIZE` | `system.memory.state` = free, used, `modified` (VMS-specific: the modified page list) |
-| `system.memory.limit` | gauge | By | `SYI$_MEMSIZE` × `SYI$_PAGE_SIZE` | |
-| `system.paging.faults` | sum | {fault} | `RMI$_FAULTS`, `RMI$_PREADS` | hard faults = page reads; soft = the rest |
-| `system.paging.operations` | sum | {operation} | `RMI$_PREADIO`, `RMI$_PWRITIO` | |
-| `system.paging.usage` | gauge | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | both longwords, both machines |
-| `system.process.count` | gauge | {process} | `RMI$_COM`, `LEF`, `HIB`, … | attribute `process.state` = the VMS scheduling state, lower-cased. On I64 the raw counts equal MONITOR STATES; on x86 they show one more CUR and two more HIB. `PROCS` is one short of the total on both, so it is not used. *(open: what x86's extras are)* |
-| `system.uptime` | gauge | s | `SYI$_BOOTTIME` | |
-| `system.filesystem.usage` | gauge | By | `DVI$_FREEBLOCKS`, `DVI$_MAXBLOCK` | per mounted disk; 512-byte blocks; `system.device`, `system.filesystem.mountpoint` = volume label |
-| `system.disk.operations` | sum | {operation} | `DVI$_OPCNT` | per disk; no read/write split exists, so no `disk.io.direction` |
-| `openvms.io.direct` | sum | {operation} | `RMI$_DIRIO` | no semconv equivalent |
-| `openvms.io.buffered` | sum | {operation} | `RMI$_BUFIO` | |
+| `system.cpu.time` | counter | s | `RMI$_CPU*` | attribute `cpu.mode`; see mapping below. Quadword 10 ms ticks on both machines, summed over all CPUs (shown on x86; I64 has one CPU) |
+| `system.cpu.logical.count` | updowncounter | {cpu} | `SYI$_ACTIVECPU_CNT` | |
+| `system.memory.usage` | updowncounter | By | `RMI$_FRLIST`, `RMI$_MODLIST`, `SYI$_MEMSIZE` | `system.memory.state` = free, used, `modified` (VMS-specific: the modified page list); used = total − free − modified, never below 0 |
+| `system.memory.limit` | updowncounter | By | `SYI$_MEMSIZE` × `SYI$_PAGE_SIZE` | |
+| `system.paging.faults` | counter | {fault} | `RMI$_FAULTS`, `RMI$_PREADS` | `system.paging.fault.type` = major (page reads), minor (the rest, with the later of the two start times) |
+| `system.paging.operations` | counter | {operation} | `RMI$_PREADIO`, `RMI$_PWRITIO` | `system.paging.direction` = in, out |
+| `system.paging.usage` | updowncounter | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | `system.paging.state` = used, free. Both longwords on both machines. *(probe: pages or pagelets — needed for 2c)* |
+| `system.process.count` | updowncounter | {process} | `RMI$_COM`, `LEF`, `HIB`, … | one series per VMS state, each with `process.state` (semconv: COM, COMO, CUR → running; SUSP, SUSPO → stopped; the rest → sleeping) and `openvms.process.state` (the VMS name, lower-cased), so a stock dashboard sums by the first and an administrator reads the second. On I64 the raw counts equal MONITOR STATES; on x86 they show one more CUR and two more HIB. `PROCS` is one short of the total on both, so it is not used. *(open: what x86's extras are)* |
+| `system.uptime` | gauge | s | `SYI$_BOOTTIME` | whole seconds, as a double |
+| `system.filesystem.usage` | updowncounter | By | `DVI$_FREEBLOCKS`, `DVI$_MAXBLOCK` | per mounted disk; 512-byte blocks; `system.device`, `system.filesystem.mountpoint` = the logical volume name (`DISK$X86SYS`), `system.filesystem.state` = used, free |
+| `system.disk.operations` | counter | {operation} | `DVI$_OPCNT` | per disk, widened per device name; no read/write split exists, so no `disk.io.direction` |
+| `openvms.io.direct` | counter | {operation} | `RMI$_DIRIO` | no semconv equivalent |
+| `openvms.io.buffered` | counter | {operation} | `RMI$_BUFIO` | |
 
 Per-process metrics (`process.cpu.time`, `process.memory.usage`) come
 in phase 2, filtered by name. A wildcard scan of every process every

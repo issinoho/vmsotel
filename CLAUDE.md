@@ -6,7 +6,10 @@ change it without wasting a round trip to a machine you cannot reach.
 
 vmsotel is an OpenTelemetry host-metrics agent for OpenVMS: it reads
 the system services and posts OTLP/HTTP JSON to a collector on Linux.
-It is **at the probe stage**. No agent code exists yet.
+The probes have been run on both machines (`docs/findings.md`).
+Phase 1 is under way: step 2a, the model (`src/model/`) and the OTLP
+JSON encoder (`src/otlp/`), is done and tested on Linux. Nothing of the
+agent has run on VMS, and no VMS build file for it exists yet.
 
 ## Where it lives
 
@@ -26,13 +29,20 @@ shared.
 ## Build and test
 
 ```sh
-make check     # build all probes; run them against stub/; run the
-               # OTLP probes against tools/fake_collector.py
+make check     # the agent's unit tests; the encoder's golden
+               # payloads against the OTLP schema; all probes against
+               # stub/ and tools/fake_collector.py
+make golden    # rewrite tests/golden/ from the encoder
 ```
+
+A golden payload changes only on purpose: run `make golden`, then read
+the diff before committing it.
 
 `PYTHON=<venv>/bin/python make check` with `opentelemetry-proto`
 installed in that venv makes the fake collector parse every payload
-against the official OTLP schema. Without it, only the JSON syntax is
+against the official OTLP schema. On Python 3.14 that needs a recent
+`opentelemetry-proto` (1.45.2 works); 1.27.0 pulls a protobuf that
+fails to import there. Without it, only the JSON syntax is
 checked, and it says so. Use the schema check for anything that changes
 a payload.
 

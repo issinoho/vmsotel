@@ -1,6 +1,7 @@
 # vmsotel (draft)
 
-An OpenTelemetry host-metrics agent for OpenVMS, at the probe stage.
+An OpenTelemetry host-metrics agent for OpenVMS. The probes have run
+on both machines; phase 1 (the agent itself) is under way.
 It started inside vmsguard (`issinoho/vmsguard`) and was moved here
 with its history; the two share no code.
 
@@ -10,6 +11,10 @@ MIT licensed (`LICENSE`).
 - `docs/design.md` — the design, and the questions the probes answer
 - `docs/findings.md` — what the probes showed, per machine
 - `docs/prompts.md` — paste-ready prompts for each stage
+- `src/model/` — one reading of the system, and 32-to-64-bit counter
+  widening
+- `src/otlp/` — the OTLP JSON encoder
+- `tests/` — unit tests and golden payloads for both
 - `probes/` — six probes: four system-service probes, and the OTLP
   export without and with TLS
 - `collector/` — collector configuration for docker-nuc
@@ -24,7 +29,9 @@ MIT licensed (`LICENSE`).
 make check
 ```
 
-That builds every probe, runs the four system-service probes against
+That runs the agent's unit tests, checks the encoder's golden
+payloads (`tests/golden/`) against the OTLP schema, builds every probe,
+runs the four system-service probes against
 the stub, and runs `probe_otlp` and `probe_otlp_tls` against the fake
 collector — including the cases that must fail (an HTTP 503, an hour
 of clock skew, plain HTTP to a TLS port). With the
@@ -98,9 +105,12 @@ $ @[.vmsotel]build_probes/OUTPUT=headers.log HEADERS
   one CPU's ticks against two active CPUs.
 - `probe_otlp` and `probe_otlp_tls` pass all seven fake-collector
   cases, with every payload parsed by protobuf against
-  `opentelemetry-proto` 1.27.0.
+  `opentelemetry-proto` 1.27.0, and later 1.45.2.
+- The model and encoder build with `-std=c99 -pedantic -Wall -Wextra
+  -Werror`, pass their unit tests, and their golden payloads parse
+  against `opentelemetry-proto` 1.45.2. Twelve deliberate breaks of the
+  code were each caught by a test.
 
-Not verified: anything on VMS. The item codes, header names and service
-signatures are from documentation and memory; that is what the probes
-are for. Nor has the collector configuration been run, because no
-collector binary could be run here.
+The probes have since run on both VMS machines, and the collector
+configuration on docker-nuc; `docs/findings.md` has the results. The
+agent code has not run on VMS.

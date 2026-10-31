@@ -12,6 +12,9 @@ it only the JSON syntax and the outline are checked, and it says so.
     fake_collector.py --selftest PLAIN TLS   run both probe images
                                              against it, including the
                                              cases that must fail
+    fake_collector.py --validate FILE...     check saved payloads, such
+                                             as the encoder's golden
+                                             files, the same way
 
 This is development tooling only. The real test is a real collector:
 see collector/collector.yaml.
@@ -189,11 +192,29 @@ def selftest(plain, tls):
     return 1 if failures else 0
 
 
+def validate_files(paths):
+    """Validate each file as a request body. Exit status 1 if any fail."""
+    failures = 0
+    if not HAVE_PROTO:
+        print("note  opentelemetry-proto not installed: JSON syntax only")
+    for path in paths:
+        with open(path, "rb") as f:
+            body = f.read()
+        ok, msg, points = validate(body)
+        print(f"{'ok  ' if ok else 'FAIL'}  {path}: {msg}"
+              + (f", {points} points" if points >= 0 else ""))
+        failures += 0 if ok else 1
+    return 1 if failures else 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=4318)
     ap.add_argument("--selftest", nargs=2, metavar=("PLAIN", "TLS"))
+    ap.add_argument("--validate", nargs="+", metavar="FILE")
     a = ap.parse_args()
+    if a.validate:
+        sys.exit(validate_files(a.validate))
     if a.selftest:
         sys.exit(selftest(*a.selftest))
     srv = http.server.HTTPServer(("0.0.0.0", a.port), Handler)
