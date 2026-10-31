@@ -197,6 +197,14 @@ static void test_optional_parts(void)
     CHECK(strstr(out, "openvms.cluster.member") == NULL);
     CHECK(strstr(out, "host.type") == NULL);
     CHECK_CONTAINS(out, "system.process.count");
+    CHECK_CONTAINS(out, "system.memory.usage");
+
+    /* Memory a source cannot vouch for is absent, not zero. */
+    r.mem_present = 0;
+    encode(&r, &res);
+    CHECK(strstr(out, "system.memory.usage") == NULL);
+    CHECK(strstr(out, "system.memory.limit") == NULL);
+    r.mem_present = 1;
 
     /* No boot time: no uptime, and no start time on boot-based sums. */
     r.boot_ns = 0;

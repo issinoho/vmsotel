@@ -173,7 +173,13 @@ today's `SYS$TIMEZONE_DIFFERENTIAL` is wrong across a change. Both hold
 the POSIX-style rule `GMT0BST^1,M3.5.0/01,M10.4.0/02` in
 `SYS$TIMEZONE_RULE`, so one option is to apply that rule to the boot
 date; the other is an uptime that counts ticks, as SHOW SYSTEM's does.
-*(probe: an unprivileged tick-based uptime)* The same applies to `JPI$_LOGINTIM`.
+*(probe: an unprivileged tick-based uptime)*
+
+As built, the VMS source converts it once, at startup, with the
+differential in force then -- the right one when the agent starts at
+boot, as it will from `SYSTARTUP_VMS.COM`. It is never re-read, so a
+summer-time change while the agent runs cannot move the start time and
+make every counter look reset. The same applies to `JPI$_LOGINTIM`.
 A start time an hour out does not corrupt rates, but `system.uptime`
 would be wrong.
 
@@ -221,11 +227,11 @@ time; widened counters carry their own (see Counters).
 | --- | --- | --- | --- | --- |
 | `system.cpu.time` | counter | s | `RMI$_CPU*` | attribute `cpu.mode`; see mapping below. Quadword 10 ms ticks on both machines, summed over all CPUs (shown on x86; I64 has one CPU) |
 | `system.cpu.logical.count` | updowncounter | {cpu} | `SYI$_ACTIVECPU_CNT` | |
-| `system.memory.usage` | updowncounter | By | `RMI$_FRLIST`, `RMI$_MODLIST`, `SYI$_MEMSIZE` | `system.memory.state` = free, used, `modified` (VMS-specific: the modified page list); used = total − free − modified, never below 0 |
-| `system.memory.limit` | updowncounter | By | `SYI$_MEMSIZE` × `SYI$_PAGE_SIZE` | |
+| `system.memory.usage` | updowncounter | By | `RMI$_FRLIST`, `RMI$_MODLIST`, `SYI$_MEMSIZE` | `system.memory.state` = free, used, `modified` (VMS-specific: the modified page list); used = total − free − modified, never below 0. *(probe: pages or pagelets, findings 23; not sent until answered)* |
+| `system.memory.limit` | updowncounter | By | `SYI$_MEMSIZE` × `SYI$_PAGE_SIZE` | *(probe: as above)* |
 | `system.paging.faults` | counter | {fault} | `RMI$_FAULTS`, `RMI$_PREADS` | `system.paging.fault.type` = major (page reads), minor (the rest, with the later of the two start times) |
 | `system.paging.operations` | counter | {operation} | `RMI$_PREADIO`, `RMI$_PWRITIO` | `system.paging.direction` = in, out |
-| `system.paging.usage` | updowncounter | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | `system.paging.state` = used, free. Both longwords on both machines. *(probe: pages or pagelets — needed for 2c)* |
+| `system.paging.usage` | updowncounter | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | `system.paging.state` = used, free. Both longwords on both machines. *(probe: pages or pagelets, findings 24; not sent until answered)* |
 | `system.process.count` | updowncounter | {process} | `RMI$_COM`, `LEF`, `HIB`, … | one series per VMS state, each with `process.state` (semconv: COM, COMO, CUR → running; SUSP, SUSPO → stopped; the rest → sleeping) and `openvms.process.state` (the VMS name, lower-cased), so a stock dashboard sums by the first and an administrator reads the second. On I64 the raw counts equal MONITOR STATES; on x86 they show one more CUR and two more HIB. `PROCS` is one short of the total on both, so it is not used. *(open: what x86's extras are)* |
 | `system.uptime` | gauge | s | `SYI$_BOOTTIME` | whole seconds, as a double |
 | `system.filesystem.usage` | updowncounter | By | `DVI$_FREEBLOCKS`, `DVI$_MAXBLOCK` | per mounted disk; 512-byte blocks; `system.device`, `system.filesystem.mountpoint` = the logical volume name (`DISK$X86SYS`), `system.filesystem.state` = used, free |
@@ -286,6 +292,13 @@ skipped. *(probe: `probe_dvi` prints the shadow items per disk.)*
 `LDM2585`, the boot memory disk `SYS$MD…`), which SHOW DEVICE D does
 not list. LD volumes a user mounted are real filesystems and are
 reported; the memory disk is not.
+
+As built (`src/sources/vms/vms_source.c`): a disk is reported when
+`DVI$_MNT` is set, `DVI$_SHDW_MEMBER` is not, and its logical volume
+name does not begin `SYS$MD`. The device is the scanned name without
+its leading underscore and trailing colon (`X86VMS$DKA0`); the mount
+point is the logical volume name. Neither machine has a shadow set, so
+the member test has only been seen to pass disks through.
 
 `DVI$_FREEBLOCKS` and `DVI$_MAXBLOCK` are longwords: correct up to 2
 TiB per volume. `DVI$_VOLSIZE` is a longword too on both machines, so it

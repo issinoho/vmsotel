@@ -28,4 +28,8 @@ void vo_source_resource(vo_resource *res);
 
 void vo_source_close(void);
 
+/* Opens, reads twice 5 s apart, and prints each value beside the
+   command that shows it on the system. 0 if everything was read. */
+int vo_source_selftest(void);
+
 #endif

@@ -49,7 +49,11 @@ Collector output on docker-nuc not yet pasted for either machine.
 | 19 | Collector shows the data points | yes | yes | docker-nuc, otelcol 0.111.0 debug exporter: every export from both machines decoded — x86 at 20:17:56 and 20:17:57 (http, https), 21:28:28 ×2, 21:28:42–43 ×2; I64 at 21:40:58 ×2 and 21:47:22 ×2. Each: `resource metrics: 1, metrics: 2, data points: 2`, resource `host.name: Str(x86vms.issinoho.com)` / `Str(myi64.issinoho.com)`, `os.type: Str(openvms)`; `vmsotel.probe.heartbeat` as `Gauge`, `vmsotel.probe.exports` as `Sum`, `IsMonotonic: true`, `AggregationTemporality: Cumulative`, attribute `vmsotel.transport: Str(http)` / `Str(https)`. **Answered on both** |
 | 20 | libssl image name and family found | SSL3 | SSL3 | x86: `OpenSSL: SYS$LIBRARY:SSL3$LIBSSL_SHR32, SYS$LIBRARY:SSL3$LIBCRYPTO_SHR32, headers SSL3$INCLUDE`; `OpenSSL 3.0.21 9 Jun 2026`. I64: `SYS$LIBRARY:SSL3$LIBSSL_SHR32 …`, `OpenSSL 3.0.22 25 Aug 2026`. **Answered on both** |
 | 21 | TLS handshake; version and cipher | yes | yes | x86: `negotiated TLSv1.3, TLS_AES_128_GCM_SHA256`, then HTTP 200. I64: `TLSv1.3, TLS_AES_128_GCM_SHA256`, HTTP 200. **Answered on both** |
-| 22 | Certificate verifies with `--cafile` | | | optional, not run |
+| 22 | Certificate verifies with `--cafile` | | | optional, not run; `build_vms RUN` with `collector.crt` present answers it |
+| 23 | `SYI$_MEMSIZE`, `RMI$_FRLIST`, `RMI$_MODLIST`: pages or pagelets | | | `build_vms SELFTEST`: the self-test's raw values beside `SHOW MEMORY/PHYSICAL`. Until answered, the agent sends no memory metrics |
+| 24 | `SYI$_PAGEFILE_PAGE`, `_FREE`: pages or pagelets | | | the same run, beside `SHOW MEMORY/FILES`. Until answered, no `system.paging.usage` |
+| 25 | The agent builds, links clean, and its self-test matches SHOW and MONITOR | | | `build_vms SELFTEST` |
+| 26 | The agent's exports reach the collector from VMS | | | `build_vms RUN`, with the collector's output on docker-nuc |
 
 ## Surprises
 

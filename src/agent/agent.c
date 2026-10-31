@@ -2,6 +2,7 @@
  * vmsotel: the agent.
  *
  *     vmsotel CONFIG [--cycles N] [--drain SECONDS]
+ *     vmsotel --selftest
  *
  * Every interval it reads the source, updates the model, encodes a
  * payload and queues it; between collections it sends the queue,
@@ -13,6 +14,9 @@
  * --cycles N stops after N collections, once the queue is empty or
  * --drain seconds (default 15) have passed; the exit status says
  * which. That is for tests. Without it the agent runs until stopped.
+ *
+ * --selftest reads the source twice and prints each value beside the
+ * VMS command that shows it, then exits. It needs no configuration.
  *
  * The log goes to standard output, one line per event, UTC.
  */
@@ -214,6 +218,9 @@ int main(int argc, char **argv)
     char err[160];
     int i;
 
+    if (argc == 2 && strcmp(argv[1], "--selftest") == 0)
+        return vo_source_selftest() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--cycles") == 0 && i + 1 < argc)
             cycles = strtoul(argv[++i], NULL, 10);
@@ -225,7 +232,8 @@ int main(int argc, char **argv)
             config_path = NULL, i = argc;
     }
     if (config_path == NULL) {
-        printf("usage: vmsotel CONFIG [--cycles N] [--drain SECONDS]\n");
+        printf("usage: vmsotel CONFIG [--cycles N] [--drain SECONDS]\n"
+               "       vmsotel --selftest\n");
         return EXIT_FAILURE;
     }
     if (!read_config(config_path, &a.cfg))

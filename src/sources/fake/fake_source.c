@@ -69,6 +69,7 @@ int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
                                 - elapsed_ticks / 100;
     r->cpu_count = 2;
 
+    r->mem_present = 1;
     r->mem_total_bytes = 930264ULL * 8192;
     r->mem_free_bytes = (699303ULL - (k % 7) * 3) * 8192;
     r->mem_modified_bytes = 24632ULL * 8192;
@@ -113,4 +114,11 @@ void vo_source_resource(vo_resource *res)
 
 void vo_source_close(void)
 {
+}
+
+int vo_source_selftest(void)
+{
+    printf("the fake source has nothing to compare: it makes its values "
+           "up\n");
+    return 0;
 }

@@ -6,10 +6,14 @@
  * in vmsguard. The values are invented; only the behaviour matters:
  *
  *   - a declared item the service refuses (SYI$_SWAPFILE_FREE)
- *   - an item that takes only a longword buffer (RMI$_FRLIST)
+ *   - $GETRMI as both machines showed it: the CPU modes, FRLIST and
+ *     MODLIST take a quadword, every other item refuses one with
+ *     SS$_BADPARAM and takes a longword, and the return length is
+ *     written as a longword, not a word
  *   - CPU-mode counters as 10 ms ticks of two CPUs, from the real clock
  *   - a wildcard scan with a NOPRIV and a SUSPENDED process in it
- *   - three disks, one of them unmounted
+ *   - disks: a mounted system disk, a shadow set's virtual unit and one
+ *     of its members, an unmounted disk, and an x86-style memory disk
  */
 
 #define _POSIX_C_SOURCE 200112L
@@ -154,20 +158,41 @@ int sys$getrmi(unsigned int efn, unsigned int csidadr, unsigned int nodename,
     (void) efn; (void) csidadr; (void) nodename; (void) astadr; (void) astprm;
 
     for (e = itmlst; e->len != 0 || e->code != 0; e++) {
+        unsigned long long v;
+        int quad = 0;
+        unsigned i, n;
+
         switch (e->code) {
-        case RMI$_CPUUSER:   put_num(e, ticks / 4); break;
-        case RMI$_CPUKERNEL: put_num(e, ticks / 8); break;
-        case RMI$_CPUEXEC:   put_num(e, ticks / 16); break;
-        case RMI$_CPUIDLE:   put_num(e, ticks - ticks / 4 - ticks / 8 - ticks / 16); break;
-        case RMI$_FRLIST:
-            if (e->len != 4) {
-                set_iosb(iosb, SS$_BADPARAM);
-                return SS$_BADPARAM;
-            }
-            put_num(e, 123456);
-            break;
-        default:             put_num(e, 0); break;
+        case RMI$_CPUUSER:   v = ticks / 4; quad = 1; break;
+        case RMI$_CPUKERNEL: v = ticks / 8; quad = 1; break;
+        case RMI$_CPUEXEC:   v = ticks / 16; quad = 1; break;
+        case RMI$_CPUIDLE:   v = ticks - ticks / 4 - ticks / 8 - ticks / 16; quad = 1; break;
+        case RMI$_CPUINTSTK: case RMI$_CPUMPSYNCH: case RMI$_CPUSUPER:
+        case RMI$_CPUCOMPAT: v = 0; quad = 1; break;
+        case RMI$_FRLIST:    v = 400000; quad = 1; break;
+        case RMI$_MODLIST:   v = 12000; quad = 1; break;
+        case RMI$_FAULTS:    v = 53843179; break;
+        case RMI$_PREADS:    v = 12801905; break;
+        case RMI$_PREADIO:   v = 4839764; break;
+        case RMI$_DIRIO:     v = 19824771; break;
+        case RMI$_BUFIO:     v = 645065712; break;
+        case RMI$_PROCS:     v = 39; break;
+        case RMI$_LEF:       v = 13; break;
+        case RMI$_HIB:       v = 26; break;
+        case RMI$_CUR:       v = 1; break;
+        default:             v = 0; break;
         }
+        if (!quad && e->len != 4) {
+            set_iosb(iosb, SS$_BADPARAM);
+            return SS$_BADPARAM;
+        }
+        n = e->len < 8 ? e->len : 8;
+        for (i = 0; i < n; i++)
+            ((unsigned char *) e->buf)[i] = (unsigned char) (v >> (8 * i));
+        /* A longword, as on both machines -- wider than item_list_3's
+           word, which is what crashed probe_rmi on x86. */
+        if (e->retlen)
+            *(unsigned int *) (void *) e->retlen = n;
     }
     set_iosb(iosb, SS$_NORMAL);
     return SS$_NORMAL;
@@ -232,8 +257,14 @@ int sys$getjpiw(unsigned int efn, unsigned int *pidadr, void *prcnam,
 
 /* ---- $DEVICE_SCAN and $GETDVI --------------------------------------- */
 
-static const char *const disk_names[] = { "_STUBBY$DKA0:", "_STUBBY$DKA100:", "_STUBBY$DQA0:" };
-#define NDISKS 3
+static const char *const disk_names[] = {
+    "_STUBBY$DKA0:",        /* mounted system disk */
+    "_STUBBY$DKA100:",      /* a shadow-set member */
+    "_STUBBY$DQA0:",        /* not mounted */
+    "_STUBBY$LDM9:",        /* the x86 memory disk, SYS$MD... */
+    "_DSA1:"                /* the shadow set's virtual unit */
+};
+#define NDISKS (sizeof disk_names / sizeof disk_names[0])
 
 int sys$device_scan(void *return_devnam, unsigned short *retlen,
                     void *search_devnam, void *itmlst, void *contxt)
@@ -261,11 +292,19 @@ int sys$getdviw(unsigned int efn, unsigned short chan, void *devnam,
                 void *nullarg)
 {
     struct dsc$descriptor_s *d = devnam;
-    int unmounted = d->dsc$w_length >= 5 &&
-                    memcmp(d->dsc$a_pointer + d->dsc$w_length - 5, "DQA0:", 5) == 0;
+    char name[65];
+    size_t n = d->dsc$w_length < 64 ? d->dsc$w_length : 64;
+    int unmounted, member, memdisk, vu;
     static unsigned int opcnt = 1000;
     ile3 *e;
     (void) efn; (void) chan; (void) astadr; (void) astprm; (void) nullarg;
+
+    memcpy(name, d->dsc$a_pointer, n);
+    name[n] = '\0';
+    unmounted = strstr(name, "DQA0") != NULL;
+    member = strstr(name, "DKA100") != NULL;
+    memdisk = strstr(name, "LDM9") != NULL;
+    vu = strstr(name, "DSA1") != NULL;
 
     for (e = itmlst; e->len != 0 || e->code != 0; e++) {
         if (unmounted && (e->code == DVI$_FREEBLOCKS || e->code == DVI$_VOLNAM)) {
@@ -274,9 +313,18 @@ int sys$getdviw(unsigned int efn, unsigned short chan, void *devnam,
         }
         switch (e->code) {
         case DVI$_MNT:        put_num(e, !unmounted); break;
-        case DVI$_VOLNAM:     put_text(e, "STUBSYS     "); break;
-        case DVI$_MAXBLOCK:   put_num(e, 41943040); break;
-        case DVI$_FREEBLOCKS: put_num(e, 12582912); break;
+        case DVI$_VOLNAM:     put_text(e, memdisk ? "MD2627349A5V" : vu ? "SHADOWED    " : "STUBSYS     "); break;
+        case DVI$_LOGVOLNAM:
+            if (unmounted)
+                put_text(e, "");
+            else
+                put_text(e, memdisk ? "SYS$MD26273232629V" :
+                            vu || member ? "DISK$SHADOWED" : "DISK$STUBSYS");
+            break;
+        case DVI$_SHDW_MEMBER: put_num(e, member); break;
+        case DVI$_SHDW_MASTER: put_num(e, vu); break;
+        case DVI$_MAXBLOCK:   put_num(e, memdisk ? 169392 : 41943040); break;
+        case DVI$_FREEBLOCKS: put_num(e, memdisk ? 18907 : vu ? 20000000 : 12582912); break;
         case DVI$_OPCNT:      put_num(e, opcnt += 37); break;
         default:              put_num(e, 0); break;
         }

@@ -298,21 +298,23 @@ static void metrics(mw *m, const vo_snapshot *s)
     point(m, NULL, NULL, NULL, NULL, boot, now, V_INT, r->cpu_count);
     metric_end(m);
 
-    /* "modified" is VMS's modified page list, kept apart because it is
-       neither free nor in use by a process. Not a semconv value. */
-    metric_begin(m, "system.memory.usage", "By", M_UPDOWN);
-    point(m, "system.memory.state", "used", NULL, NULL, boot, now, V_INT,
-          minus(r->mem_total_bytes,
-                r->mem_free_bytes + r->mem_modified_bytes));
-    point(m, "system.memory.state", "free", NULL, NULL, boot, now, V_INT,
-          r->mem_free_bytes);
-    point(m, "system.memory.state", "modified", NULL, NULL, boot, now, V_INT,
-          r->mem_modified_bytes);
-    metric_end(m);
+    if (r->mem_present) {
+        /* "modified" is VMS's modified page list, kept apart because it is
+           neither free nor in use by a process. Not a semconv value. */
+        metric_begin(m, "system.memory.usage", "By", M_UPDOWN);
+        point(m, "system.memory.state", "used", NULL, NULL, boot, now, V_INT,
+              minus(r->mem_total_bytes,
+                    r->mem_free_bytes + r->mem_modified_bytes));
+        point(m, "system.memory.state", "free", NULL, NULL, boot, now, V_INT,
+              r->mem_free_bytes);
+        point(m, "system.memory.state", "modified", NULL, NULL, boot, now, V_INT,
+              r->mem_modified_bytes);
+        metric_end(m);
 
-    metric_begin(m, "system.memory.limit", "By", M_UPDOWN);
-    point(m, NULL, NULL, NULL, NULL, boot, now, V_INT, r->mem_total_bytes);
-    metric_end(m);
+        metric_begin(m, "system.memory.limit", "By", M_UPDOWN);
+        point(m, NULL, NULL, NULL, NULL, boot, now, V_INT, r->mem_total_bytes);
+        metric_end(m);
+    }
 
     /* Hard faults are those that read the page in; the rest are soft.
        The derived minor count takes the later of the two start times. */

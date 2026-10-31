@@ -1,11 +1,17 @@
 /*
- * vmsotel: the platform interface on POSIX sockets and clocks.
+ * vmsotel: the platform interface on POSIX sockets, for Linux and VMS.
  *
- * Written to the subset that VMS TCP/IP Services also offers --
- * getaddrinfo, socket, connect, select, send, recv, as probe_otlp used
- * on both machines -- so that it may serve on VMS too. The clock and
- * sleep calls are the parts that will not: VMS has no gettimeofday,
- * and clock_gettime is unprobed there. Step 2c settles those.
+ * Kept to calls already proven on both VMS machines: getaddrinfo,
+ * socket, connect, send and recv by probe_otlp; poll, fcntl O_NONBLOCK
+ * and socklen_t by vmsguard's platform layer; sys$gettim and sleep()
+ * by the probes. The one thing not yet run on VMS is the non-blocking
+ * connect (EINPROGRESS, then SO_ERROR), which is plain BSD sockets.
+ *
+ * VMS has no gettimeofday, so the clocks differ there: UTC from
+ * time(), which docs/findings.md shows follows the system's own
+ * differential, and intervals from $GETTIM. $GETTIM follows the wall
+ * clock, so an interval stretches or shrinks if the clock is set
+ * mid-wait; at one collection a minute that is harmless.
  */
 
 #if !defined(__VMS) && !defined(_POSIX_C_SOURCE)
@@ -20,10 +26,14 @@
 #include <time.h>
 
 #include <netdb.h>
-#include <sys/select.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+#ifdef __VMS
+#  include <starlet.h>
+#endif
 
 #include "platform.h"
 
@@ -38,19 +48,17 @@ struct vo_conn {
 #  define SEND_FLAGS 0
 #endif
 
+/* 1 when fd is ready, 0 on timeout, -1 on error. */
 static int wait_fd(int fd, int for_write, int timeout_ms)
 {
-    fd_set set;
-    struct timeval tv;
+    struct pollfd pfd;
     int r;
 
-    FD_ZERO(&set);
-    FD_SET(fd, &set);
-    tv.tv_sec = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
+    pfd.fd = fd;
+    pfd.events = for_write ? POLLOUT : POLLIN;
+    pfd.revents = 0;
     do {
-        r = select(fd + 1, for_write ? NULL : &set, for_write ? &set : NULL,
-                   NULL, &tv);
+        r = poll(&pfd, 1, timeout_ms);
     } while (r < 0 && errno == EINTR);
     return r;
 }
@@ -200,9 +208,12 @@ vo_u64 vo_time_utc_ns(void)
 vo_u64 vo_time_mono_ms(void)
 {
 #ifdef __VMS
-    /* Placeholder until step 2c: $GETTIM-based, so it follows the
-       wall clock. */
-    return (vo_u64) time(NULL) * 1000ULL;
+    /* 100 ns units since 17-NOV-1858; odd status is success. */
+    unsigned long long now = 0;
+
+    if (!(sys$gettim((void *) &now) & 1))
+        return (vo_u64) time(NULL) * 1000ULL;
+    return (vo_u64) (now / 10000ULL);
 #else
     struct timespec ts;
 
@@ -214,7 +225,10 @@ vo_u64 vo_time_mono_ms(void)
 void vo_sleep_ms(vo_u32 ms)
 {
 #ifdef __VMS
-    sleep((ms + 999) / 1000);
+    /* Whole seconds, rounded up: sleep() is what the probes proved.
+       The agent's waits are seconds long, so nothing finer is needed. */
+    if (ms > 0)
+        sleep((ms + 999) / 1000);
 #else
     struct timespec ts;
 

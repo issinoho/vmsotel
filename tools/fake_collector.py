@@ -15,7 +15,7 @@ it only the JSON syntax and the outline are checked, and it says so.
     fake_collector.py --validate FILE...     check saved payloads, such
                                              as the encoder's golden
                                              files, the same way
-    fake_collector.py --agent-selftest PLAIN TLS
+    fake_collector.py --agent-selftest PLAIN TLS [VMSSTUB]
                                              run the agent images against
                                              it: retries, Retry-After,
                                              rejection, a collector that
@@ -221,7 +221,7 @@ def free_port():
     return port
 
 
-def agent_selftest(plain, tls):
+def agent_selftest(plain, tls, vmsstub=None):
     """Runs the agent images against this collector. Each case states
     what must happen at both ends: the agent's exit status and log, and
     what the collector received."""
@@ -326,6 +326,21 @@ def agent_selftest(plain, tls):
           rc == 0 and len(State.seen) == 0 and
           "more than max_payload 4096; dropped -- raise max_payload" in out,
           out)
+    if vmsstub:
+        # The VMS source against the stub: the disks it must skip
+        # (shadow member DKA100, unmounted DQA0, memory disk LDM9) are
+        # absent, and so is memory, held back until its units are known.
+        reset()
+        rc, out = run(vmsstub, conf(port), 2)
+        sent = b"".join(s[3] for s in State.seen)
+        check("VMS source (stub): two exports; skips shadow member, "
+              "unmounted and memory disks; no memory",
+              rc == 0 and len(accepted()) == 2 and
+              b'"STUBBY$DKA0"' in sent and b'"DSA1"' in sent and
+              b"DKA100" not in sent and b"DQA0" not in sent and
+              b"LDM9" not in sent and b"system.memory" not in sent and
+              b"system.cpu.time" in sent and b'"lef"' in sent, out)
+
     srv.shutdown()
     srv.server_close()
 
@@ -413,7 +428,8 @@ def main():
     ap.add_argument("--port", type=int, default=4318)
     ap.add_argument("--selftest", nargs=2, metavar=("PLAIN", "TLS"))
     ap.add_argument("--validate", nargs="+", metavar="FILE")
-    ap.add_argument("--agent-selftest", nargs=2, metavar=("PLAIN", "TLS"))
+    ap.add_argument("--agent-selftest", nargs="+",
+                    metavar="IMAGE", help="PLAIN TLS [VMSSTUB]")
     a = ap.parse_args()
     if a.agent_selftest:
         sys.exit(agent_selftest(*a.agent_selftest))

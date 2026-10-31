@@ -36,6 +36,7 @@ void fixture_full(vo_raw *r)
     r->cpu_ticks[VO_CPU_IDLE] = 111328837;
     r->cpu_count = 2;
 
+    r->mem_present = 1;
     r->mem_total_bytes = 930264ULL * 8192;
     r->mem_free_bytes = 699303ULL * 8192;
     r->mem_modified_bytes = 24632ULL * 8192;
@@ -70,6 +71,7 @@ void fixture_minimal(vo_raw *r)
     r->now_ns = FIX_NOW_NS;
     r->boot_ns = FIX_BOOT_NS;
     r->cpu_count = 1;
+    r->mem_present = 1;
     r->mem_total_bytes = 524240ULL * 8192;
     r->mem_free_bytes = 349972ULL * 8192;
     r->mem_modified_bytes = 1849ULL * 8192;

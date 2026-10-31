@@ -63,6 +63,7 @@ typedef struct {
     vo_u64 cpu_ticks[VO_CPU_MODES];     /* 10 ms ticks, summed over CPUs */
     vo_u32 cpu_count;
 
+    int mem_present;
     vo_u64 mem_total_bytes;
     vo_u64 mem_free_bytes;
     vo_u64 mem_modified_bytes;

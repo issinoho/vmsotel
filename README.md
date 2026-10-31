@@ -102,6 +102,20 @@ $ type probes.log
 Later, to pick up changes: `set default [.vmsotel]`, `git pull`,
 `set default [-]`, and run it again.
 
+The agent itself is built by `build_vms.com`, from the same directory:
+
+```dcl
+$ @[.vmsotel]build_vms/OUTPUT=selftest.log SELFTEST
+$ @[.vmsotel]build_vms/OUTPUT=run.log RUN
+```
+
+`SELFTEST` builds `[.vmsotel.build]VMSOTEL.EXE` and `VMSOTEL_TLS.EXE`
+and prints every value the agent reads beside the `SHOW` or `MONITOR`
+command that shows the same number. `RUN` sends three exports to the
+collector on docker-nuc, and a TLS one too if `collector.crt` from
+docker-nuc has been copied into `[.vmsotel]`. `descrip.mms` builds the
+same images with `MMS`.
+
 That builds the six probes, runs them, and runs `SHOW SYSTEM` and
 `SHOW DEVICE D` beside the probes that need comparing with them. Run it
 **without** elevated privileges first; whether the probes need any is
