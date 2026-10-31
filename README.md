@@ -1,10 +1,8 @@
 # vmsotel (draft)
 
 An OpenTelemetry host-metrics agent for OpenVMS, at the probe stage.
-It sits in vmsguard's tree only so the probes can travel to the VMS
-machines by `git pull`; it shares no code with vmsguard and will move
-to its own repository (`git subtree split --prefix=drafts/vmsotel`
-keeps its history).
+It started inside vmsguard (`issinoho/vmsguard`) and was moved here
+with its history; the two share no code.
 
 MIT licensed (`LICENSE`).
 
@@ -23,7 +21,6 @@ MIT licensed (`LICENSE`).
 ## On Linux
 
 ```sh
-cd drafts/vmsotel
 make check
 ```
 
@@ -42,7 +39,7 @@ The OTLP probes post to `192.168.0.218`, ports 4318 (plain) and 4319
 (TLS).
 
 ```sh
-cd drafts/vmsotel/collector
+cd collector
 ./make-cert.sh
 docker run --rm -p 4318:4318 -p 4319:4319 \
   -v "$PWD/collector.yaml:/etc/otelcol/config.yaml:ro" \
@@ -61,15 +58,17 @@ plain-HTTP probe.
 
 ## On OpenVMS
 
-Same commands on both machines, from the top of the vmsguard checkout.
-The probes are on the branch `ccr-97df299c-rjyniw`, not on `main`:
+Same commands on both machines. Clone once, from the directory that
+holds the vmsguard checkout (type git subcommands in lowercase):
 
 ```dcl
-$ git fetch origin ccr-97df299c-rjyniw
-$ git checkout ccr-97df299c-rjyniw
-$ @[.drafts.vmsotel]build_probes/OUTPUT=probes.log RUN
+$ git clone https://github.com/issinoho/vmsotel.git
+$ @[.vmsotel]build_probes/OUTPUT=probes.log RUN
 $ type probes.log
 ```
+
+Later, to pick up changes: `set default [.vmsotel]`, `git pull`,
+`set default [-]`, and run it again.
 
 That builds the six probes, runs them, and runs `SHOW SYSTEM` and
 `SHOW DEVICE D` beside the probes that need comparing with them. Run it
@@ -80,7 +79,7 @@ If many items come back "not declared", this lists what the system
 headers actually contain:
 
 ```dcl
-$ @[.drafts.vmsotel]build_probes/OUTPUT=headers.log HEADERS
+$ @[.vmsotel]build_probes/OUTPUT=headers.log HEADERS
 ```
 
 ## Verified

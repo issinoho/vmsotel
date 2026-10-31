@@ -4,11 +4,9 @@ Paste-ready prompts for each stage of vmsotel. Each one stands alone:
 it says which files to read, so a new session needs nothing else. Use
 them in order. Stage 1 can be repeated as often as the probes need.
 
-All of them assume the session has the vmsguard repository on branch
-`ccr-97df299c-rjyniw`, or the vmsotel repository once it exists.
-`drafts/vmsotel/CLAUDE.md` loads automatically when Claude works in
-that directory. The prompts name it anyway, because a session started
-at the repository root may not have read it.
+All of them assume the session has the `issinoho/vmsotel` repository.
+`CLAUDE.md` loads automatically; the prompts name it anyway, so that a
+session that skipped it is told to read it.
 
 ---
 
@@ -17,19 +15,17 @@ at the repository root may not have read it.
 Prefix any request with this when the session is new:
 
 ```text
-Read drafts/vmsotel/CLAUDE.md, drafts/vmsotel/docs/design.md and
-drafts/vmsotel/docs/findings.md before doing anything. vmsotel is an
-OpenTelemetry host-metrics agent for OpenVMS, in C99, at the stage
-those files describe. I run everything on the VMS machines and paste
-the output back; you cannot reach them. Work only inside
-drafts/vmsotel/, on branch ccr-97df299c-rjyniw.
+Read CLAUDE.md, docs/design.md and docs/findings.md before doing
+anything. vmsotel is an OpenTelemetry host-metrics agent for OpenVMS,
+in C99, at the stage those files describe. I run everything on the VMS
+machines and paste the output back; you cannot reach them.
 ```
 
 ---
 
 ## 1. Read the probe results
 
-After running `@[.drafts.vmsotel]build_probes/OUTPUT=probes.log RUN`
+After running `@[.vmsotel]build_probes/OUTPUT=probes.log RUN`
 on a machine. Paste one machine per message, or both, labelled.
 
 ```text
@@ -59,7 +55,7 @@ Do not start agent code in this stage.
 ```
 
 If many items were "not declared", run
-`@[.drafts.vmsotel]build_probes/OUTPUT=headers.log HEADERS` and paste
+`@[.vmsotel]build_probes/OUTPUT=headers.log HEADERS` and paste
 `headers.log` with this:
 
 ```text
@@ -78,43 +74,14 @@ the other, and the reply should say how that was checked.
 
 ---
 
-## 2. Move to its own repository
-
-Once every findings row has both machines filled in. First create an
-empty GitHub repository named `vmsotel`.
-
-```text
-[Stage 0 prompt]
-
-I have created an empty repository issinoho/vmsotel. Move
-drafts/vmsotel there with its history, using
-`git subtree split --prefix=drafts/vmsotel`, and push it as main.
-
-In the new repository:
-- drafts/vmsotel/CLAUDE.md becomes the root CLAUDE.md. Rewrite its
-  "Where it lives" section, and copy into it the vmsguard OpenVMS
-  lessons it currently refers to, because vmsguard's CLAUDE.md will no
-  longer load. Keep the lessons, not the vmsguard history.
-- Fix every path that assumed drafts/vmsotel/, including
-  build_probes.com usage lines, README and docs/prompts.md.
-- Keep the MIT LICENSE that is already there.
-- Run `make check` there.
-
-Then, in vmsguard, open a pull request on branch ccr-97df299c-rjyniw
-that removes drafts/vmsotel and points to the new repository. Do not
-merge it.
-```
-
----
-
-## 3. Phase 1, step by step
+## 2. Phase 1, step by step
 
 Phase 1 is the system metrics in the design's table, sent over plain
 HTTP and TLS, by an agent running detached. Do it as four steps, each
 a session or more. Each step ends with something to run, here or on
 VMS.
 
-### 3a. Encoder and model (Linux only)
+### 2a. Encoder and model (Linux only)
 
 ```text
 [Stage 0 prompt]
@@ -137,11 +104,11 @@ Both are pure C99 with no I/O and no VMS dependency.
   in docs/design.md.
 
 Add everything to the Makefile and `make check`. Leave the VMS build
-files for 3c, but list in your reply what they will need. Confirm a
+files for 2c, but list in your reply what they will need. Confirm a
 test fails when you break the code it covers. Commit and push.
 ```
 
-### 3b. Transport and a fake source (Linux end to end)
+### 2b. Transport and a fake source (Linux end to end)
 
 ```text
 [Stage 0 prompt]
@@ -168,7 +135,7 @@ Show it working against the fake collector. Commit and push, and tell
 me how to run it against the real collector on the laptop.
 ```
 
-### 3c. VMS sources and build files
+### 2c. VMS sources and build files
 
 ```text
 [Stage 0 prompt]
@@ -183,7 +150,7 @@ design needs is not confirmed, stop and tell me rather than guess.
 - Add a self-test that prints each value beside the MONITOR or SHOW
   command that shows the same number.
 - Build files: build_vms.com and descrip.mms, alongside the Makefile,
-  in the same edit, for everything from 3a and 3b as well. Check every
+  in the same edit, for everything from 2a and 2b as well. Check every
   LINK's severity in the .com file.
 - Keep the stub in stub/ up to date so the VMS source builds and runs
   on Linux.
@@ -193,7 +160,7 @@ agent once against the laptop collector at 192.168.0.218, on each
 machine. Commit and push.
 ```
 
-### 3d. Running it for real
+### 2d. Running it for real
 
 ```text
 [Stage 0 prompt]
@@ -216,7 +183,7 @@ to confirm the numbers agree. Commit and push.
 
 ---
 
-## 4. Asking for a review
+## 3. Asking for a review
 
 Before moving to the next phase:
 

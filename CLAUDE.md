@@ -10,22 +10,22 @@ It is **at the probe stage**. No agent code exists yet.
 
 ## Where it lives
 
-For now, `drafts/vmsotel/` inside the vmsguard repository, on a branch,
-only so the probes reach the VMS machines by `git`. It shares no code
-with vmsguard. vmsguard's root `CLAUDE.md` also loads; its OpenVMS
-lessons apply here, but its **clean-room rule does not** — see
-Licensing. When this moves to its own repository
-(`git subtree split --prefix=drafts/vmsotel`), this file becomes its
-root `CLAUDE.md`.
+Its own repository, `issinoho/vmsotel`. It started under
+`drafts/vmsotel/` in vmsguard (`issinoho/vmsguard`, public) and was
+moved out with its history; the first three commits are from then.
 
-Do not touch anything outside `drafts/vmsotel/`, and run vmsguard's
-`make test` before committing anyway: it is cheap and proves nothing
-was disturbed.
+It shares no code with vmsguard, but it was built by the same people on
+the same two machines, so vmsguard's OpenVMS lessons apply. They are
+copied below, because vmsguard's own `CLAUDE.md` does not load here.
+Its **clean-room rule does not apply** — see Licensing. Where this file
+or the design points at a vmsguard file for an example (its
+`build_vms.com`, `src/proto/wg_crypto.c`), that file is reference only:
+read it on GitHub if the session lacks it, and never assume code can be
+shared.
 
 ## Build and test
 
 ```sh
-cd drafts/vmsotel
 make check     # build all probes; run them against stub/; run the
                # OTLP probes against tools/fake_collector.py
 ```

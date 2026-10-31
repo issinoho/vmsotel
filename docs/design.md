@@ -1,8 +1,8 @@
 # vmsotel — design draft
 
 An agent that reports OpenVMS host metrics to an OpenTelemetry
-Collector. Working name; this lives in vmsguard's tree only until it has
-its own repository.
+Collector. It began inside vmsguard and shares that project's approach,
+but none of its code.
 
 Status: **draft, nothing built.** Every claim below about what VMS
 returns is a question for `probes/` until the probes have been run on

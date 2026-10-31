@@ -2,14 +2,14 @@ $! build_probes.com -- build and run the vmsotel probes on OpenVMS
 $!
 $! Usage, from any directory:
 $!
-$!     @[.drafts.vmsotel]build_probes            build all six probes
-$!     @[.drafts.vmsotel]build_probes RUN        build, then run them all
-$!     @[.drafts.vmsotel]build_probes HEADERS    list the item codes the
-$!                                               system headers declare
+$!     @[.vmsotel]build_probes            build all six probes
+$!     @[.vmsotel]build_probes RUN        build, then run them all
+$!     @[.vmsotel]build_probes HEADERS    list the item codes the
+$!                                      system headers declare
 $!
 $! Capture everything for pasting back with /OUTPUT:
 $!
-$!     @[.drafts.vmsotel]build_probes/OUTPUT=probes.log RUN
+$!     @[.vmsotel]build_probes/OUTPUT=probes.log RUN
 $!
 $! A second parameter forces an OpenSSL family for probe_otlp_tls, as
 $! in vmsguard's build_vms.com:  @build_probes RUN SSL111
