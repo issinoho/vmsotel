@@ -46,6 +46,11 @@ vo_u64 vo_time_utc_ns(void);
    must not jump when the wall clock is set. */
 vo_u64 vo_time_mono_ms(void);
 
+/* An interval clock as fine as the system offers, in nanoseconds, for
+   timing work that takes milliseconds. On VMS it is $GETTIM, whose
+   unit is 100 ns; on Linux, CLOCK_MONOTONIC. */
+vo_u64 vo_time_precise_ns(void);
+
 void vo_sleep_ms(vo_u32 ms);
 
 #endif

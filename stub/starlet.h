@@ -17,6 +17,8 @@ int sys$getjpiw(unsigned int efn, unsigned int *pidadr, void *prcnam,
                 void *itmlst, void *iosb, void (*astadr)(void), int astprm);
 int sys$device_scan(void *return_devnam, unsigned short *retlen,
                     void *search_devnam, void *itmlst, void *contxt);
+int sys$trnlnm(unsigned int *attr, void *tabnam, void *lognam,
+               unsigned char *acmode, void *itmlst);
 int sys$getdviw(unsigned int efn, unsigned short chan, void *devnam,
                 void *itmlst, void *iosb, void (*astadr)(void), int astprm,
                 void *nullarg);

@@ -16,7 +16,9 @@ built here against `stub/` as `build/vmsotel_vmsstub`), `build_vms.com`
 (SELFTEST, RUN) and `descrip.mms` (not yet run). Its self-test matched
 SHOW and MONITOR, and the agent sent exports to docker-nuc from both.
 `make check` also checks that the three build files compile the same
-sources.
+sources. Step 2d is written, not yet run on VMS: VMSOTEL_START/RUN/STOP.COM
+(detached, stop file, --log), the startup clock check, and
+docs/operations.md.
 
 ## Where it lives
 

@@ -222,6 +222,22 @@ vo_u64 vo_time_mono_ms(void)
 #endif
 }
 
+vo_u64 vo_time_precise_ns(void)
+{
+#ifdef __VMS
+    unsigned long long now = 0;
+
+    if (!(sys$gettim((void *) &now) & 1))
+        return (vo_u64) time(NULL) * 1000000000ULL;
+    return (vo_u64) now * 100ULL;
+#else
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (vo_u64) ts.tv_sec * 1000000000ULL + (vo_u64) ts.tv_nsec;
+#endif
+}
+
 void vo_sleep_ms(vo_u32 ms)
 {
 #ifdef __VMS

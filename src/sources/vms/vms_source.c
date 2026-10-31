@@ -45,6 +45,7 @@
 #include <dvidef.h>
 #include <dvsdef.h>
 #include <efndef.h>
+#include <lnmdef.h>
 #include <rmidef.h>
 #include <ssdef.h>
 #include <starlet.h>
@@ -208,6 +209,74 @@ static const char *host_arch;
 static int cluster_member;
 
 /*
+ * SYS$TIMEZONE_DIFFERENTIAL from the system table. Not getenv: on x86
+ * a process-level definition changed what getenv saw but not what
+ * time() returned (docs/findings.md), so getenv would let one stray
+ * logical make the clock check below refuse a healthy system.
+ */
+static int system_tdf(long long *tdf, char *err, size_t errcap)
+{
+    static char table[] = "LNM$SYSTEM_TABLE";
+    static char name[] = "SYS$TIMEZONE_DIFFERENTIAL";
+    struct dsc$descriptor_s td, nd;
+    unsigned int attr = LNM$M_CASE_BLIND;
+    char value[64];
+    unsigned short len = 0;
+    ile3 ile[2];
+    unsigned int st;
+
+    make_desc(&td, table, sizeof table - 1);
+    make_desc(&nd, name, sizeof name - 1);
+    memset(ile, 0, sizeof ile);
+    ile[0].len = sizeof value - 1;
+    ile[0].code = LNM$_STRING;
+    ile[0].buf = value;
+    ile[0].retlen = &len;
+    st = sys$trnlnm(&attr, (void *) &td, (void *) &nd, 0, (void *) ile);
+    if (!(st & 1)) {
+        snprintf(err, errcap, "SYS$TIMEZONE_DIFFERENTIAL is not defined "
+                 "in LNM$SYSTEM_TABLE (status %%X%08X); without it local "
+                 "time cannot be turned into UTC", st);
+        return 0;
+    }
+    value[len] = '\0';
+    *tdf = strtol(value, NULL, 10);
+    return 1;
+}
+
+/*
+ * The startup check from docs/design.md, "Time": time() must agree with
+ * $GETTIM less the system's differential. If it does not, the timezone
+ * is misconfigured and every point would land hours away from where a
+ * collector expects it, silently -- so the agent refuses to start and
+ * says why. The two reads are microseconds apart; 2 s allows for
+ * time() truncating to the second.
+ */
+static int clock_check(long long tdf, char *err, size_t errcap)
+{
+    unsigned long long now = 0;
+    long long from_time, local, d;
+
+    from_time = (long long) time(NULL);
+    if (!(sys$gettim((void *) &now) & 1) || now <= VMS_TO_UNIX) {
+        snprintf(err, errcap, "$GETTIM failed");
+        return 0;
+    }
+    local = (long long) ((now - VMS_TO_UNIX) / 10000000ULL);
+    d = from_time - (local - tdf);
+    if (d < -2 || d > 2) {
+        snprintf(err, errcap, "clock check failed: time() is %lld, but "
+                 "$GETTIM less SYS$TIMEZONE_DIFFERENTIAL (%lld s) is %lld, "
+                 "%lld s apart. Every timestamp would be wrong by that "
+                 "much; check the differential and the time zone "
+                 "(@SYS$MANAGER:UTC$TIME_SETUP)", from_time, tdf,
+                 local - tdf, d);
+        return 0;
+    }
+    return 1;
+}
+
+/*
  * SYI$_BOOTTIME is local time at boot, so it is turned into UTC with
  * the differential in force when the agent starts -- the right one when
  * the agent starts at boot, as SYSTARTUP_VMS.COM will start it. It is
@@ -216,11 +285,9 @@ static int cluster_member;
  * started later, across a change since boot, system.uptime is off by
  * the change (docs/design.md, Counters).
  */
-static int read_boot(char *err, size_t errcap)
+static int read_boot(long long tdf, char *err, size_t errcap)
 {
     vo_u64 bt;
-    const char *tdf_s = getenv("SYS$TIMEZONE_DIFFERENTIAL");
-    long long tdf = tdf_s ? strtol(tdf_s, NULL, 10) : 0;
     long long unix100;
     unsigned int st = syi_num(SYI$_BOOTTIME, 8, &bt);
 
@@ -251,8 +318,13 @@ int vo_source_open(char *err, size_t errcap)
         snprintf(err, errcap, "SYI$_PAGE_SIZE: status %%X%08X", st);
         return 0;
     }
-    if (!read_boot(err, errcap))
-        return 0;
+    {
+        long long tdf;
+
+        if (!system_tdf(&tdf, err, errcap) || !clock_check(tdf, err, errcap) ||
+            !read_boot(tdf, err, errcap))
+            return 0;
+    }
 
     syi_text(SYI$_HW_NAME, host_type, sizeof host_type);
     syi_text(SYI$_VERSION, os_version, sizeof os_version);
@@ -465,7 +537,7 @@ fail:
 int vo_source_selftest(void)
 {
     static vo_raw a, b;
-    char err[160];
+    char err[400];
     vo_u64 memsize = 0, frlist = 0, modlist = 0, pf_page = 0, pf_free = 0;
     vo_u64 total = 0, delta[VO_CPU_MODES];
     size_t i;

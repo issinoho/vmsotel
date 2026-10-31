@@ -1,7 +1,8 @@
 /*
  * vmsotel: the agent.
  *
- *     vmsotel CONFIG [--cycles N] [--drain SECONDS]
+ *     vmsotel CONFIG [--log FILE] [--stop-file FILE]
+ *                    [--cycles N] [--drain SECONDS]
  *     vmsotel --selftest
  *
  * Every interval it reads the source, updates the model, encodes a
@@ -18,9 +19,20 @@
  * --selftest reads the source twice and prints each value beside the
  * VMS command that shows it, then exits. It needs no configuration.
  *
- * The log goes to standard output, one line per event, UTC.
+ * The log goes to standard output, or with --log to a file, one line
+ * per event, UTC.
+ *
+ * Stopping. With --stop-file, the agent looks for that file once a
+ * second; when it appears, the agent deletes it (the acknowledgement
+ * vmsotel_stop.com waits for), tries once more to send what is queued,
+ * logs what is still unsent, writes a summary and exits. SIGINT and
+ * SIGTERM do the same. STOP/IDENTIFICATION cannot: it deletes the
+ * process without running anything, so the agent also says, in every
+ * failure line, how many exports are waiting -- the last such line is
+ * what a STOP/ID lost.
  */
 
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,28 +55,71 @@
 #define SKEW_WARN_S     2               /* the probes' threshold */
 #define CONFIG_MAX      65536
 
+static const char *log_path;
+static const char *stop_path;
+static volatile sig_atomic_t stop_signal;
+
+/*
+ * One line, to standard output or to --log. A log file is opened,
+ * appended to and closed for every line, as vmsguard's gateway does on
+ * both machines: the VSI C RTL opens files for exclusive access, so a
+ * log held open could not be read with TYPE while the agent runs, and
+ * asking for sharing needs an fopen extension /STANDARD=C99 hides.
+ */
 static void vo_log(const char *fmt, ...)
 {
     vo_u64 ns = vo_time_utc_ns();
     time_t secs = (time_t) (ns / 1000000000ULL);
     struct tm *tm = gmtime(&secs);
+    char line[1024];
+    size_t n = 0;
     va_list ap;
+    FILE *f;
 
     if (tm != NULL)
-        printf("%04d-%02d-%02dT%02d:%02d:%02dZ ", tm->tm_year + 1900,
-               tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min,
-               tm->tm_sec);
+        n = (size_t) snprintf(line, sizeof line,
+                              "%04d-%02d-%02dT%02d:%02d:%02dZ ",
+                              tm->tm_year + 1900, tm->tm_mon + 1,
+                              tm->tm_mday, tm->tm_hour, tm->tm_min,
+                              tm->tm_sec);
     va_start(ap, fmt);
-    vprintf(fmt, ap);
+    vsnprintf(line + n, sizeof line - n, fmt, ap);
     va_end(ap);
-    printf("\n");
-    fflush(stdout);
+
+    if (log_path != NULL && (f = fopen(log_path, "a")) != NULL) {
+        fprintf(f, "%s\n", line);
+        fclose(f);
+    } else {
+        printf("%s\n", line);
+        fflush(stdout);
+    }
+}
+
+static void on_signal(int sig)
+{
+    (void) sig;
+    stop_signal = 1;
+}
+
+/* A signal, or the stop file -- deleted once seen, so that it is the
+   acknowledgement, and so that the next start does not stop at once. */
+static int stop_requested(void)
+{
+    FILE *f;
+
+    if (stop_signal)
+        return 1;
+    if (stop_path == NULL || (f = fopen(stop_path, "r")) == NULL)
+        return 0;
+    fclose(f);
+    (void) remove(stop_path);
+    return 1;
 }
 
 static int read_config(const char *path, vo_config *c)
 {
     static char text[CONFIG_MAX];
-    char err[160];
+    char err[400];
     FILE *f = fopen(path, "r");
     size_t n;
     int line;
@@ -107,12 +162,12 @@ typedef struct {
 
 static void collect(agent *a)
 {
-    char err[160];
-    vo_u64 t0 = vo_time_utc_ns(), t1;
+    char err[400];
+    vo_u64 t0 = vo_time_precise_ns(), t1;
     size_t len = 0;
     int dropped, i;
 
-    if (!vo_source_read(&a->raw, t0, err, sizeof err)) {
+    if (!vo_source_read(&a->raw, vo_time_utc_ns(), err, sizeof err)) {
         vo_log("collection failed: %s", err);
         return;
     }
@@ -123,7 +178,9 @@ static void collect(agent *a)
                 vo_log("cpu mode %s went backwards; no longer reported",
                        vo_cpu_mode_name(i));
             }
-    t1 = vo_time_utc_ns();
+    /* The precise clock: the UTC one is whole seconds on VMS, which
+       made this always 0 there. */
+    t1 = vo_time_precise_ns();
     a->stats.collect_us = t1 > t0 ? (t1 - t0) / 1000 : 0;
     a->stats.queue_length = a->queue.count;
 
@@ -200,13 +257,32 @@ static int send_one(agent *a)
         a->backoff_ms = (vo_u64) r.retry_after_s * 1000 > MAX_BACKOFF_MS
                         ? MAX_BACKOFF_MS : (vo_u64) r.retry_after_s * 1000;
     if (r.status != 0)
-        vo_log("export failed, HTTP %d%s%s; retrying in %lu ms", r.status,
-               r.message[0] ? ": " : "", r.message,
-               (unsigned long) a->backoff_ms);
+        vo_log("export failed, HTTP %d%s%s; retrying in %lu ms; %u waiting",
+               r.status, r.message[0] ? ": " : "", r.message,
+               (unsigned long) a->backoff_ms, a->queue.count);
     else
-        vo_log("export failed: %s; retrying in %lu ms", r.message,
-               (unsigned long) a->backoff_ms);
+        vo_log("export failed: %s; retrying in %lu ms; %u waiting",
+               r.message, (unsigned long) a->backoff_ms, a->queue.count);
     return 0;
+}
+
+/* After a stop request: one more try at everything queued, then an
+   account of whatever could not go. Nothing is lost silently. */
+static void finish(agent *a, unsigned long done)
+{
+    unsigned lost;
+
+    while (a->queue.count > 0 && send_one(a))
+        ;
+    lost = a->queue.count;
+    if (lost > 0) {
+        a->stats.exports_dropped += lost;
+        vo_log("stopping with %u export%s unsent; %s lost", lost,
+               lost == 1 ? "" : "s", lost == 1 ? "it is" : "they are");
+    }
+    vo_log("stopped: %lu collections, %llu sent, %llu failed attempts, "
+           "%llu dropped", done, a->stats.exports_sent,
+           a->stats.exports_failed, a->stats.exports_dropped);
 }
 
 int main(int argc, char **argv)
@@ -215,7 +291,7 @@ int main(int argc, char **argv)
     const char *config_path = NULL;
     unsigned long cycles = 0, done = 0, drain_s = 15;
     vo_u64 now, next_collect, next_send, drain_until = 0;
-    char err[160];
+    char err[400];
     int i;
 
     if (argc == 2 && strcmp(argv[1], "--selftest") == 0)
@@ -226,13 +302,18 @@ int main(int argc, char **argv)
             cycles = strtoul(argv[++i], NULL, 10);
         else if (strcmp(argv[i], "--drain") == 0 && i + 1 < argc)
             drain_s = strtoul(argv[++i], NULL, 10);
+        else if (strcmp(argv[i], "--log") == 0 && i + 1 < argc)
+            log_path = argv[++i];
+        else if (strcmp(argv[i], "--stop-file") == 0 && i + 1 < argc)
+            stop_path = argv[++i];
         else if (config_path == NULL && argv[i][0] != '-')
             config_path = argv[i];
         else
             config_path = NULL, i = argc;
     }
     if (config_path == NULL) {
-        printf("usage: vmsotel CONFIG [--cycles N] [--drain SECONDS]\n"
+        printf("usage: vmsotel CONFIG [--log FILE] [--stop-file FILE]\n"
+               "                      [--cycles N] [--drain SECONDS]\n"
                "       vmsotel --selftest\n");
         return EXIT_FAILURE;
     }
@@ -264,9 +345,11 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
     if (!vo_source_open(err, sizeof err)) {
-        vo_log("source: %s", err);
+        vo_log("not starting: %s", err);
         return EXIT_FAILURE;
     }
+    signal(SIGINT, on_signal);
+    signal(SIGTERM, on_signal);
     vo_source_resource(&a.res);
     a.res.service_version = VO_VERSION;
     a.res.extra = a.cfg.extra;
@@ -282,11 +365,18 @@ int main(int argc, char **argv)
         vo_log("TLS through %s, CA %s", vo_tls_library(),
                a.target.cafile ? a.target.cafile : "(system default)");
 #endif
+    if (stop_path != NULL)
+        vo_log("to stop: create %s", stop_path);
 
     next_collect = next_send = vo_time_mono_ms();
     for (;;) {
         vo_u64 wake;
 
+        if (stop_requested()) {
+            vo_log("stop requested");
+            finish(&a, done);
+            return EXIT_SUCCESS;
+        }
         now = vo_time_mono_ms();
         if ((cycles == 0 || done < cycles) && now >= next_collect) {
             collect(&a);
@@ -319,10 +409,11 @@ int main(int argc, char **argv)
             }
         }
 
+        /* At most a second at a time, so a stop is seen within one. */
         wake = (cycles == 0 || done < cycles) ? next_collect : drain_until;
         if (a.queue.count > 0 && next_send < wake)
             wake = next_send;
         if (wake > now)
-            vo_sleep_ms((vo_u32) (wake - now > 60000 ? 60000 : wake - now));
+            vo_sleep_ms((vo_u32) (wake - now > 1000 ? 1000 : wake - now));
     }
 }

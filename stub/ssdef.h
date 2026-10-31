@@ -10,4 +10,5 @@
 #define SS$_NOMOREDEV   2648
 #define SS$_NOSUCHDEV   2312
 #define SS$_DEVNOTMOUNT 124
+#define SS$_NOLOGNAM 444
 #endif

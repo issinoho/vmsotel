@@ -30,6 +30,7 @@ import email.utils
 import http.server
 import json
 import os
+import re
 import ssl
 import subprocess
 import sys
@@ -227,7 +228,7 @@ def agent_selftest(plain, tls, vmsstub=None):
     what the collector received."""
     failures = 0
 
-    def run(image, conf, cycles, drain=8, timeout=60):
+    def run(image, conf, cycles, drain=8, timeout=60, env=None):
         with tempfile.NamedTemporaryFile("w", suffix=".conf",
                                          delete=False) as f:
             f.write(conf)
@@ -235,7 +236,7 @@ def agent_selftest(plain, tls, vmsstub=None):
             p = subprocess.run([image, f.name, "--cycles", str(cycles),
                                 "--drain", str(drain)],
                                capture_output=True, text=True,
-                               timeout=timeout)
+                               timeout=timeout, env=env)
             return p.returncode, p.stdout
         finally:
             os.unlink(f.name)
@@ -345,6 +346,41 @@ def agent_selftest(plain, tls, vmsstub=None):
               b'"asInt":"1414660096"' in sent and
               b"system.cpu.time" in sent and b'"lef"' in sent, out)
 
+    # Stopping: the stop file, and SIGTERM, each followed by a final
+    # send and a summary in the --log file.
+    def stopped_run(image, conf_text, how, after=2.5, env=None):
+        d = tempfile.mkdtemp()
+        cf, lf, sf = (os.path.join(d, n) for n in ("a.conf", "a.log", "a.stop"))
+        with open(cf, "w") as f:
+            f.write(conf_text)
+        p = subprocess.Popen([image, cf, "--log", lf, "--stop-file", sf],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, env=env)
+        time.sleep(after)
+        if how == "file":
+            open(sf, "w").close()
+        else:
+            p.terminate()
+        try:
+            rc = p.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            rc = None
+        log = open(lf).read() if os.path.exists(lf) else ""
+        return rc, log, os.path.exists(sf), p.stdout.read()
+
+    reset()
+    rc, log, left, out = stopped_run(plain, conf(port), "file")
+    check("stop file: seen, deleted, clean exit, summary in the log file",
+          rc == 0 and not left and "stop requested" in log and
+          "stopped:" in log and " 0 dropped" in log and
+          len(accepted()) >= 2 and out == "", log + out)
+
+    reset()
+    rc, log, left, out = stopped_run(plain, conf(port), "signal")
+    check("SIGTERM: clean exit with a summary",
+          rc == 0 and "stop requested" in log and "stopped:" in log, log)
+
     srv.shutdown()
     srv.server_close()
 
@@ -369,6 +405,25 @@ def agent_selftest(plain, tls, vmsstub=None):
     if late:
         late[0].shutdown()
         late[0].server_close()
+
+    nowhere = free_port()
+    rc, log, left, out = stopped_run(plain, conf(nowhere), "file", after=3.5)
+    lost = re.search(r"stopping with (\d+) exports? unsent", log)
+    check(f"stop with the collector down: {lost.group(1) if lost else '?'} "
+          "lost exports logged and counted",
+          rc == 0 and lost is not None and
+          f"{lost.group(1)} dropped" in log and "waiting" in log, log)
+
+    if vmsstub:
+        env = dict(os.environ, STUB_TDF="3600")
+        rc, out = run(vmsstub, conf(port), 1, env=env)
+        check("clock check: a differential time() disagrees with refuses "
+              "to start", rc != 0 and "not starting: clock check failed" in out
+              and "3600 s apart" in out, out)
+        env = dict(os.environ, STUB_TDF="none")
+        rc, out = run(vmsstub, conf(port), 1, env=env)
+        check("clock check: no system differential refuses to start",
+              rc != 0 and "not defined in LNM$SYSTEM_TABLE" in out, out)
 
     rc, out = run(plain, conf(port, "tls = yes\n"), 1)
     check("plain image refuses tls = yes",

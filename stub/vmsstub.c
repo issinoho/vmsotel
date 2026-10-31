@@ -19,6 +19,7 @@
 #define _POSIX_C_SOURCE 200112L
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -31,6 +32,7 @@
 #include "dvidef.h"
 #include "dvsdef.h"
 #include "dcdef.h"
+#include "lnmdef.h"
 
 typedef struct {
     unsigned short len, code;
@@ -254,6 +256,33 @@ int sys$getjpiw(unsigned int efn, unsigned int *pidadr, void *prcnam,
         }
     }
     set_iosb(iosb, SS$_NORMAL);
+    return SS$_NORMAL;
+}
+
+/* ---- $TRNLNM ------------------------------------------------------- */
+
+/*
+ * Only SYS$TIMEZONE_DIFFERENTIAL, from the environment variable
+ * STUB_TDF (default "0"). The stub's $GETTIM is the real UTC read as
+ * local time, so any STUB_TDF but 0 makes time() and $GETTIM minus the
+ * differential disagree -- the misconfiguration the agent's startup
+ * check refuses. STUB_TDF=none makes the logical undefined.
+ */
+int sys$trnlnm(unsigned int *attr, void *tabnam, void *lognam,
+               unsigned char *acmode, void *itmlst)
+{
+    struct dsc$descriptor_s *n = lognam;
+    const char *v = getenv("STUB_TDF");
+    ile3 *e = itmlst;
+    (void) attr; (void) tabnam; (void) acmode;
+
+    if (n->dsc$w_length != 25 ||
+        memcmp(n->dsc$a_pointer, "SYS$TIMEZONE_DIFFERENTIAL", 25) != 0 ||
+        (v != NULL && strcmp(v, "none") == 0))
+        return SS$_NOLOGNAM;
+    for (; e->len != 0 || e->code != 0; e++)
+        if (e->code == LNM$_STRING)
+            put_text(e, v != NULL ? v : "0");
     return SS$_NORMAL;
 }
 
