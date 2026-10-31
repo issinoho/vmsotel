@@ -123,6 +123,11 @@ against the collector's `Date` header.)*
 The agent will compare the two at startup and refuse to run if they
 disagree by more than a few seconds, saying why.
 
+The differential for that check is translated from `LNM$SYSTEM_TABLE`,
+not read with `getenv`: on x86 a process-level
+`SYS$TIMEZONE_DIFFERENTIAL` changed what `getenv` saw but not what
+`time()` returned, so `getenv` would make the check fail spuriously.
+
 ## Counters
 
 Every VMS counter of interest is cumulative since boot (or process

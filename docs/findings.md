@@ -32,7 +32,7 @@ Collector output on docker-nuc not yet pasted for either machine.
 | 2 | `printf("%llu")` works | yes | yes | x86: `printf %llu check: 12345678901`. I64: `printf %llu check: 12345678901` |
 | 3 | Item-list layout is 12 bytes | yes | yes | x86: `item list entry: 12 bytes, pointers 4 bytes`. I64: `item list entry: 12 bytes, pointers 4 bytes` |
 | 4 | `SYI$_` items: which are declared, which accepted | all but one | all but one | x86: every item accepted except `SYI$_FREE_PAGES  not declared in <syidef.h>`. Not needed: free memory comes from `RMI$_FRLIST`. `HW_MODEL` 2 bytes, `CLUSTER_MEMBER` 1, `CLUSTER_NODES` 2, `MAXPROCESSCNT` 2 — not all longwords. I64: the same — `SYI$_FREE_PAGES  not declared`, the rest accepted with the same sizes as x86 |
-| 5 | `time()` is UTC | not settled | not settled | x86: `time()` = `$GETTIM` = `$GETTIM minus differential` = `2026-10-31T20:17:43Z`, but the differential is 0 (GMT), so local time and UTC are the same and this cannot tell them apart. Needs a run while a nonzero differential is in force. I64: also `SYS$TIMEZONE_DIFFERENTIAL 0`, all three readings `2026-10-31T21:40:34Z`; cannot tell |
+| 5 | `time()` is UTC | narrowed | not settled | x86: `time()` = `$GETTIM` = `$GETTIM minus differential` = `2026-10-31T20:17:43Z`, but the differential is 0 (GMT), so local time and UTC are the same and this cannot tell them apart. Needs a run while a nonzero differential is in force. I64: also `SYS$TIMEZONE_DIFFERENTIAL 0`, all three readings `2026-10-31T21:40:34Z`; cannot tell x86, subprocess with `DEFINE SYS$TIMEZONE_DIFFERENTIAL "3600"`: `time()` stayed at `$GETTIM` (`1793483746` both) and ignored the process-level value — `time() differs from local-minus-differential by 3600 s`. So the C RTL takes the system's differential, not a process logical; whether it subtracts it is still unseen while the system value is 0 |
 | 6 | `SYS$TIMEZONE_DIFFERENTIAL` defined and correct | defined | defined | x86: `SYS$TIMEZONE_DIFFERENTIAL  0`, `SYS$TIMEZONE_NAME  GMT`. Correct for UK winter; see Surprises on boot time. I64: `0`, `GMT`, same rule `GMT0BST^1,M3.5.0/01,M10.4.0/02` |
 | 7 | `RMI$_` items: declared, accepted, byte size | all 38 | all 38 | x86 run 4: every item declared and accepted. **Quadword** (accepts len 8, `retlen 8`): the eight `CPU*` modes, `FRLIST`, `MODLIST`. **Longword only** (len 8 → `queue 00000014` = SS$_BADPARAM, len 4 → `retlen 4`): everything else, including `PROCS`. Runs 1–3 crashed: see Surprises, return length. Run 5, with a longword return length: no `GUARD changed` line for any item. I64: identical item set and sizes (quadword `CPU*`, `FRLIST`, `MODLIST`; longword-only the rest). No `GUARD changed` line — but this probe already gave a longword return length, so I64 writing 2 or 4 bytes cannot be told apart |
 | 8 | CPU mode counters are 10 ms ticks summed over CPUs | yes | 10 ms ticks | x86 run 4a: `sum of deltas 1012 over 5.18 s` = `97.7 units per second per active CPU`, 2 CPUs; 4b `97.3`. That sum includes `CPUINTSTK`'s negative delta (−14, −20); without it 99.0 and 99.2. Run 5, which leaves it out: `7 mode items accepted, sum of deltas 1006 over 5.08 s` = `99.0`. `CPUINTSTK` is not usable: see Surprises. I64: `8 mode items accepted, sum of deltas 504 over 5.05 s` = `99.8`, `CPUINTSTK` normal (`695781`, +0). One CPU (`ACTIVECPU_CNT 1`), so summing over CPUs is shown by x86 only |
@@ -143,3 +143,13 @@ what it changes in the design.
   days, a longword. It passes 2^31 within days (any signed handling
   breaks there) and wraps 2^32 in about 2½ weeks. Widening is needed
   in practice, not just in theory.
+- **x86: `time()` ignores a process-level `SYS$TIMEZONE_DIFFERENTIAL`;
+  `getenv` does not.** With the logical defined as 3600 in a
+  subprocess, `getenv` returned `3600` and probe_syi failed its UTC
+  check, while `time()` did not move. Design: the agent's startup
+  clock check must translate the differential from `LNM$SYSTEM_TABLE`
+  explicitly, not with `getenv`, or a process logical makes it refuse
+  to start for nothing. The same run gives `boot time, UTC
+  2026-10-23T15:48:29Z` with the summer differential, within about 70 s
+  of what SHOW SYSTEM's uptime implies — consistent with the
+  summer-time explanation.
