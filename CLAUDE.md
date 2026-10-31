@@ -106,6 +106,9 @@ compiler.
 - **Case on the DCL command line.** Unquoted arguments to a C foreign
   command arrive lowercased; git has been seen preserving case.
   Quote anything case-sensitive. Type git subcommands in lowercase.
+- **`$GETRMI` writes its return length as a longword**, not the word
+  item_list_3 declares (x86, found in this project after two crashed
+  runs). A 2-byte return length on the stack loses its neighbour.
 - **`gettimeofday` is absent.** Use `time()` for UTC seconds, once
   `probe_syi` has shown it is UTC, or `$GETTIM` for intervals.
 - **Commands for the user to paste must not depend on the default

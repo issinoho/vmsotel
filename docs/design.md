@@ -160,14 +160,14 @@ implementation time.
 
 | Metric | Type | Unit | Source | Notes |
 | --- | --- | --- | --- | --- |
-| `system.cpu.time` | sum | s | `RMI$_CPU*` | attribute `cpu.mode`; see mapping below. *(probe: unit and whether summed over CPUs)* |
+| `system.cpu.time` | sum | s | `RMI$_CPU*` | attribute `cpu.mode`; see mapping below. Quadword 10 ms ticks summed over all CPUs on x86. *(probe: same on I64)* |
 | `system.cpu.logical.count` | gauge | {cpu} | `SYI$_ACTIVECPU_CNT` | |
 | `system.memory.usage` | gauge | By | `RMI$_FRLIST`, `RMI$_MODLIST`, `SYI$_MEMSIZE` | `system.memory.state` = free, used, `modified` (VMS-specific: the modified page list) |
 | `system.memory.limit` | gauge | By | `SYI$_MEMSIZE` × `SYI$_PAGE_SIZE` | |
 | `system.paging.faults` | sum | {fault} | `RMI$_FAULTS`, `RMI$_PREADS` | hard faults = page reads; soft = the rest |
 | `system.paging.operations` | sum | {operation} | `RMI$_PREADIO`, `RMI$_PWRITIO` | |
 | `system.paging.usage` | gauge | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | *(probe: items exist on both versions)* |
-| `system.process.count` | gauge | {process} | `RMI$_COM`, `LEF`, `HIB`, … | attribute `process.state` = the VMS scheduling state, lower-cased |
+| `system.process.count` | gauge | {process} | `RMI$_COM`, `LEF`, `HIB`, … | attribute `process.state` = the VMS scheduling state, lower-cased. On x86 the states summed to 44 against `PROCS` 39. *(probe: compare with MONITOR STATES)* |
 | `system.uptime` | gauge | s | `SYI$_BOOTTIME` | |
 | `system.filesystem.usage` | gauge | By | `DVI$_FREEBLOCKS`, `DVI$_MAXBLOCK` | per mounted disk; 512-byte blocks; `system.device`, `system.filesystem.mountpoint` = volume label |
 | `system.disk.operations` | sum | {operation} | `DVI$_OPCNT` | per disk; no read/write split exists, so no `disk.io.direction` |
@@ -187,10 +187,17 @@ an agent switched off.
 | kernel | `kernel` |
 | executive | `executive` |
 | supervisor | `supervisor` |
-| interrupt stack | `interrupt` |
+| interrupt stack | `interrupt` — but `RMI$_CPUINTSTK` is negative and falling on x86; dropped unless another source turns up |
 | MP synchronisation | `mpsynch` |
 | compatibility | `compat` (always zero after VAX; dropped if so) |
 | idle | `idle` |
+
+**`$GETRMI` returns lengths as longwords.** Its item list has the
+item_list_3 shape, but the return-length field it writes is 4 bytes
+(x86, `docs/findings.md`). The agent gives it a longword. The `CPU*`
+modes, `FRLIST` and `MODLIST` are quadwords; every other item used here
+is a longword and refuses an 8-byte buffer with `SS$_BADPARAM`, so the
+longword counters need the 2^32 widening above.
 
 `user`, `kernel`, `interrupt` and `idle` are standard values. The others
 are VMS's own and are kept rather than folded into `system`, because the
@@ -283,8 +290,8 @@ and the numbers in MONITOR are the other end.
 | Question | Answered by |
 | --- | --- |
 | Which `RMI$_` items exist on E9.2-4 and V8.4-2L3, and their sizes | `probe_rmi`, `HEADERS` |
-| Are the CPU mode counters 10 ms ticks summed over all CPUs | `probe_rmi` |
-| Does `$GETRMI` need privilege | `probe_rmi` run unprivileged |
+| Are the CPU mode counters 10 ms ticks summed over all CPUs — yes on x86 | `probe_rmi` |
+| Does `$GETRMI` need privilege — no on x86 | `probe_rmi` run unprivileged |
 | Is `time()` UTC — needs a nonzero differential to tell | `probe_syi`, `probe_otlp` |
 | `JPI$_PPGCNT`: pages or pagelets — pagelets on x86 | `probe_jpi` beside `SHOW SYSTEM` |
 | How many processes an unprivileged scan sees | `probe_jpi` |

@@ -46,20 +46,18 @@ static rmi_result first[RMI_ITEMS_COUNT], second[RMI_ITEMS_COUNT];
  * One item per call. The buffer is offered as a quadword first; if the
  * service insists on exactly a longword, it is asked again with 4.
  *
- * Nothing the service is given lives on the stack. On x86 the first
- * $GETRMI call returned, and then the loop in sample() faulted reading
- * rmi_items[1].code at address 0x14: the table's base address had become
- * 0. The fault was the same with a 4 KB static data buffer, so it is not
- * the data. The likeliest cause is the service writing the IOSB or the
- * return length wider than its 8 or 2 bytes, zeroing a saved pointer
- * beside it on the stack.
+ * $GETRMI writes the return length as a LONGWORD, not the word that
+ * item_list_3 declares. On x86 E9.2-4 a 2-byte return length on the
+ * stack had its neighbour zeroed -- a saved pointer -- and the next loop
+ * iteration faulted at 0x14. The guard bytes showed it: retlen+2 and
+ * retlen+3 written, nothing else, for every item. So the return length
+ * here is 4 bytes.
  *
- * So the IOSB, the return length and the item list sit in one static
- * block, between bytes filled with a pattern. After each call, guard()
- * reports any pattern byte that changed, which says which one was
- * written too wide and by how much. In the first sample each call's raw
- * results are printed before anything else runs, so even if the image
- * still dies afterwards, what the service returned is in the log.
+ * The IOSB, the return length and the item list still sit in one
+ * static block between pattern-filled guard bytes, and any guard byte
+ * the service changes is reported, so the other machine is checked too.
+ * In the first sample each call's raw results are printed before
+ * anything else runs.
  */
 #define RMI_BUF_SIZE 4096
 #define RMI_FILL 0xA5
@@ -67,7 +65,7 @@ static rmi_result first[RMI_ITEMS_COUNT], second[RMI_ITEMS_COUNT];
 
 static unsigned char rmi_buf[RMI_BUF_SIZE];
 
-/* [GUARD] iosb(8) [GUARD] retlen(2) [GUARD-2] item list(2 entries) [GUARD] */
+/* [GUARD] iosb(8) [GUARD] retlen(4) [GUARD-4] item list(2 entries) [GUARD] */
 #define OFF_IOSB   GUARD
 #define OFF_RETLEN (OFF_IOSB + 8 + GUARD)
 #define OFF_ILE    (OFF_RETLEN + GUARD)
@@ -82,7 +80,7 @@ static union {
 static int in_use(unsigned i)
 {
     return (i >= OFF_IOSB && i < OFF_IOSB + 8) ||
-           (i >= OFF_RETLEN && i < OFF_RETLEN + 2) ||
+           (i >= OFF_RETLEN && i < OFF_RETLEN + 4) ||
            (i >= OFF_ILE && i < OFF_ILE + ILE_BYTES);
 }
 
@@ -125,7 +123,7 @@ static void query_one(const probe_item *it, rmi_result *r, int trace)
 {
     static const unsigned short sizes[2] = { 8, 4 };
     unsigned short *iosb = (unsigned short *) (blk.b + OFF_IOSB);
-    unsigned short *retlen = (unsigned short *) (blk.b + OFF_RETLEN);
+    unsigned int *retlen = (unsigned int *) (blk.b + OFF_RETLEN);
     probe_ile3 *ile = (probe_ile3 *) (blk.b + OFF_ILE);
     int attempt;
 
@@ -142,7 +140,7 @@ static void query_one(const probe_item *it, rmi_result *r, int trace)
         ile[0].len = sizes[attempt];
         ile[0].code = (unsigned short) it->code;
         ile[0].buf = rmi_buf;
-        ile[0].retlen = retlen;
+        ile[0].retlen = (unsigned short *) retlen;   /* see above */
 
         /* $GETRMI has no W form: queue it, then wait on the IOSB. */
         st_q = st = sys$getrmi(EFN$C_ENF, 0, 0, (void *) ile, (void *) iosb, 0, 0);
@@ -176,7 +174,7 @@ static void query_one(const probe_item *it, rmi_result *r, int trace)
         }
         if (st & 1) {
             r->accepted = 1;
-            r->retlen = *retlen ? *retlen : sizes[attempt];
+            r->retlen = (unsigned short) (*retlen ? *retlen : sizes[attempt]);
             r->value = probe_le(rmi_buf, sizes[attempt]);
             return;
         }
@@ -295,9 +293,18 @@ int main(void)
                a->value, b->value,
                (long long) (b->value - a->value), (unsigned) a->retlen);
 
+        /* A mode counter that goes backwards is not a counter; on x86
+           RMI$_CPUINTSTK was near 2^64 and fell. Left out of the sum so
+           the unit check still says something, and failed loudly. */
         if (strncmp(it->name, "RMI$_CPU", 8) == 0) {
-            cpu_sum += b->value - a->value;
-            cpu_items++;
+            if (b->value < a->value) {
+                printf("  BACKWARDS %s: as signed, %lld -> %lld\n", it->name,
+                       (long long) a->value, (long long) b->value);
+                probe_fail("a CPU mode counter went backwards; left out of the sum");
+            } else {
+                cpu_sum += b->value - a->value;
+                cpu_items++;
+            }
         }
     }
 

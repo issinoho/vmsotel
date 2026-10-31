@@ -13,6 +13,8 @@ Runs so far, all **x86, 2026-10-31**, user IAIN:
    ACNT … WORLD).
 3. 21:28, probes from 7f5ebdb, in a subprocess with
    `Process privileges: NETMBX TMPMBX` only.
+4. ~21:34, `probe_rmi` alone from 2eacec7, privileged (4a) and in a
+   NETMBX/TMPMBX subprocess (4b).
 
 Collector output on docker-nuc not yet pasted.
 
@@ -24,10 +26,10 @@ Collector output on docker-nuc not yet pasted.
 | 4 | `SYI$_` items: which are declared, which accepted | all but one | | x86: every item accepted except `SYI$_FREE_PAGES  not declared in <syidef.h>`. Not needed: free memory comes from `RMI$_FRLIST`. `HW_MODEL` 2 bytes, `CLUSTER_MEMBER` 1, `CLUSTER_NODES` 2, `MAXPROCESSCNT` 2 — not all longwords |
 | 5 | `time()` is UTC | not settled | | x86: `time()` = `$GETTIM` = `$GETTIM minus differential` = `2026-10-31T20:17:43Z`, but the differential is 0 (GMT), so local time and UTC are the same and this cannot tell them apart. Needs a run while a nonzero differential is in force |
 | 6 | `SYS$TIMEZONE_DIFFERENTIAL` defined and correct | defined | | x86: `SYS$TIMEZONE_DIFFERENTIAL  0`, `SYS$TIMEZONE_NAME  GMT`. Correct for UK winter; see Surprises on boot time |
-| 7 | `RMI$_` items: declared, accepted, byte size | crashed | | x86 runs 1–3: ACCVIO at `virtual address=…0014` straight after the first call, `querying RMI$_CPUINTSTK` (all three runs), with a 4 KB static data buffer too. See Surprises. Probe now keeps IOSB and return length off the stack, guarded; rerun |
-| 8 | CPU mode counters are 10 ms ticks summed over CPUs | crashed | | as 7 |
-| 9 | `$GETRMI` works unprivileged | not settled | | x86 run 3 (NETMBX, TMPMBX): the call got far enough to crash the same way, so it was not refused outright; values not seen |
-| 10 | Which `RMI$_` items are counters and which gauges | crashed | | as 7 |
+| 7 | `RMI$_` items: declared, accepted, byte size | all 38 | | x86 run 4: every item declared and accepted. **Quadword** (accepts len 8, `retlen 8`): the eight `CPU*` modes, `FRLIST`, `MODLIST`. **Longword only** (len 8 → `queue 00000014` = SS$_BADPARAM, len 4 → `retlen 4`): everything else, including `PROCS`. Runs 1–3 crashed: see Surprises, return length |
+| 8 | CPU mode counters are 10 ms ticks summed over CPUs | yes | | x86 run 4a: `sum of deltas 1012 over 5.18 s` = `97.7 units per second per active CPU`, 2 CPUs; 4b `97.3`. That sum includes `CPUINTSTK`'s negative delta (−14, −20); without it 99.0 and 99.2. `CPUINTSTK` is not usable: see Surprises |
+| 9 | `$GETRMI` works unprivileged | **yes** | | x86 run 4b (NETMBX, TMPMBX): every item `ok`, same sizes and plausible values as 4a |
+| 10 | Which `RMI$_` items are counters and which gauges | see notes | | x86 run 4, by size and 5 s delta. **Counters**: `CPU*` (except `CPUINTSTK`), `FAULTS`, `PREADS`, `PWRITES`, `PREADIO`, `PWRITIO`, `GVALFLTS`, `DZROFLTS`, `TRANSFLTS`, `DIRIO`, `BUFIO` (`645065712 → 645068377`), `MBREADS`, `MBWRITES`; `SYSFAULTS`, `ISWPCNT` were 0. **Gauges**: `PROCS` (39/40), `FRLIST` (`+12`), `MODLIST`, and the state counts `COM` … `CEF` (`LEF 14 → 13`). `BUFIO` at 6.45 × 10⁸ after 8.2 days (≈ 78 M a day) wraps its longword about 7 weeks from now |
 | 11 | `JPI$_PPGCNT`/`GPGCNT` are pages or pagelets | **pagelets** | | x86: `MARIADBD_3306 … 209664` vs SHOW SYSTEM Pages `13104`; `LTPHP_19000 62464` vs `3904`. Ratio exactly 16 = 8192 / 512. SHOW SYSTEM's column is pages |
 | 12 | Processes visible unprivileged vs `SHOW SYSTEM` | **own only** | | x86 run 3: `processes returned  3`, `NOPRIV  38` — IAIN's three processes; 3 + 38 = 41 = SHOW SYSTEM's 41 lines. Privileged run 2: `40`, `NOPRIV 0` = SHOW SYSTEM's 40. The scan does not stop at NOPRIV, it skips |
 | 13 | Full `$GETJPI` scan cost | 1–2 ms | | x86: `scan took 2.0 ms` (42 processes), `1.0 ms` (40), `1.0 ms` unprivileged |
@@ -76,14 +78,26 @@ what it changes in the design.
 - **The privileges line overflowed DCL**: `%DCL-W-TKNOVF, command
   element is too long`, because `WRITE` of `F$GETJPI(,"CURPRIV")` for a
   fully privileged process is too long. Now `SHOW PROCESS/PRIVILEGES`.
-- **x86: `$GETRMI` returns, then the caller's state is gone.** Mapping
-  the listing line numbers in the traceback (`sample 24771`, `main
-  24842` = source line 196) puts the fault at probe_rmi.c line 125,
-  `rmi_items[i].code`, on the iteration after the first call. With
-  4-byte pointers that field of entry 1 is at offset 0x14, so the
-  table's address had become 0. The 4 KB static buffer did not help, so
-  the data buffer is not what was overrun. Candidates: the IOSB or the
-  return length written wider than 8 or 2 bytes onto the stack, or a
-  register not preserved across the call. The probe now separates the
-  two: guarded static IOSB and return length, raw results printed
-  before the loop resumes.
+- **x86: `$GETRMI` writes the return length as a longword.** Runs 1–3
+  crashed after the first call: the traceback's listing lines (`main
+  24842` = source line 196) put the fault at the loop reading
+  `rmi_items[1].code`, offset 0x14 from a table address that had become
+  0. Run 4 put the return length in a static block between guard bytes:
+  `GUARD changed: retlen+2=00 retlen+3=00` on every item, nothing else,
+  privileged or not. So `$GETRMI` stores 4 bytes where item_list_3 has
+  a word, and a 2-byte return length on the stack loses its neighbour.
+  Design: give `$GETRMI` a longword return length. Not yet known
+  whether I64 does the same. The other three services wrote words as
+  far as their (unguarded) runs show.
+- **x86: `RMI$_CPUINTSTK` is negative and falls.** Run 4a:
+  `18446744073706407677 → 18446744073706407663`, i.e. −3 143 939 going
+  down by 14 in 5 s; 4b by 20. Every other mode rises. It cannot be
+  reported as a cumulative sum. Perhaps interrupt time on x86 is
+  derived by subtraction and underflows, or it is meant as signed;
+  either way interrupt time needs another source, or is dropped.
+- **x86: `$GETRMI` state counts do not add up to `PROCS`.** Run 4a
+  second sample: `COM 1` + `CUR 2` + `LEF 13` + `HIB 28` = 44, against
+  `PROCS 39` and 40 lines in SHOW SYSTEM (which showed 26 HIB, 13 LEF,
+  1 CUR). `CUR 2` with 2 CPUs suggests the counts include each CPU's
+  idle loop, and HIB two extra system processes. Before `process.state`
+  is built on these, compare them with MONITOR STATES.
