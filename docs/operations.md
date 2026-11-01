@@ -82,8 +82,8 @@ many were lost.
 
 `VMSOTEL.LOG`, in the vmsotel directory, one line per event, times in
 UTC. It is opened and closed for each line -- vmsguard's way round the
-C RTL's exclusive opens -- so `TYPE` should work while the agent runs;
-the test runs so far typed it only after a stop. `VMSOTEL_RUN.LOG` holds DCL's output: look there if the
+C RTL's exclusive opens -- so `TYPE` works while the agent runs (seen
+on x86). Each start appends to the same file. `VMSOTEL_RUN.LOG` holds DCL's output: look there if the
 process ends without writing to `VMSOTEL.LOG`.
 
 | Line | Meaning |
