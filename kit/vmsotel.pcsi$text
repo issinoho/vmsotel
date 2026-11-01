@@ -1,0 +1,24 @@
+=product @PRODUCER@ @BASE@ VMSOTEL @PCSIVERSION@ full
+1 'PRODUCER
+=prompt @PRODUCER@
+1 'PRODUCT
+=prompt vmsotel @VERSION@ for OpenVMS: host metrics and logs to an OpenTelemetry collector
+1 'NOTICE
+=prompt vmsotel is distributed under the MIT licence.
+1 RELEASE_NOTES
+=prompt Documentation is in [VMSOTEL.DOC]README.VMS under the installation directory.
+1 POST_INSTALL
+=prompt Post-installation tasks for vmsotel
+    Once, as SYSTEM: create the agent's account (default VMSOTEL, with a
+    UIC group of its own above MAXSYSGROUP), set the protections, and
+    create VMSOTEL$ROOT:[CONF]VMSOTEL.CONF from its example:
+    $ @VMSOTEL$ROOT:[COM]VMSOTEL$CONFIGURE
+    Set host (the collector) in VMSOTEL$ROOT:[CONF]VMSOTEL.CONF, then:
+    $ @VMSOTEL$ROOT:[COM]VMSOTEL_START
+    At boot, add to SYS$MANAGER:SYSTARTUP_VMS.COM (after TCP/IP):
+    $ @SYS$STARTUP:VMSOTEL$STARTUP.COM
+    At shutdown, add to SYS$MANAGER:SYSHUTDWN.COM:
+    $ @SYS$STARTUP:VMSOTEL$SHUTDOWN.COM
+
+PRODUCT REMOVE VMSOTEL stops the agent and deassigns VMSOTEL$ROOT and
+VMSOTEL$USER; the configuration, the logs and the account are kept.

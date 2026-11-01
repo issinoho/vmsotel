@@ -34,7 +34,8 @@ SSL_EXPECT = VO_EXPECT_OPENSSL_3
 ! PREFIX_LIBRARY_ENTRIES=ALL_ENTRIES, or every POSIX name (socket,
 ! poll, getaddrinfo) is left a bare symbol that fails to link. No
 ! /POINTER_SIZE here: the system-service code's item lists need 32-bit
-! pointers. Only tls.obj, which calls the ..._SHR32 images, states it.
+! pointers. Only tls.obj and launch.obj, which call the ..._SHR32
+! images, state it.
 
 INCLUDES = /INCLUDE_DIRECTORY=([.src.model],[.src.otlp],[.src.platform],-
 [.src.transport],[.src.sources],[.src.agent])
@@ -69,8 +70,8 @@ HEADERS = [.src.model]model.h,[.src.model]vo_types.h,[.src.model]version.h,-
 .LAST
     @- IF F$TRNLNM("OPENSSL","LNM$JOB") .NES. "" THEN DEASSIGN/JOB OPENSSL
 
-ALL : [.build]vmsotel.exe, [.build]vmsotel_tls.exe
-    @ WRITE SYS$OUTPUT "build complete: [.build]vmsotel.exe, vmsotel_tls.exe"
+ALL : [.build]vmsotel.exe, [.build]vmsotel_tls.exe, [.build]vmsotel_launch.exe
+    @ WRITE SYS$OUTPUT "build complete: [.build]vmsotel.exe, vmsotel_tls.exe, vmsotel_launch.exe"
 
 ! ==== the agent's objects ====
 
@@ -125,6 +126,12 @@ ALL : [.build]vmsotel.exe, [.build]vmsotel_tls.exe
     $(CC)$(CFLAGS)/POINTER_SIZE=32/DEFINE=(VO_WITH_TLS,$(SSL_EXPECT))-
 /OBJECT=$(MMS$TARGET) [.src.transport]tls.c
 
+! The kit's launcher: persona services, $CREPRC, and OpenSSL's
+! generator, so the pointer size of the ..._SHR32 images too.
+
+[.build]launch.obj : [.src.launch]launch.c
+    $(CC)$(CFLAGS)/POINTER_SIZE=32/OBJECT=$(MMS$TARGET) [.src.launch]launch.c
+
 ! ==== linker options ====
 
 $(OPT) :
@@ -151,6 +158,10 @@ $(CORE_OBJS)
 [.build]http_tls.obj,[.build]tls.obj,$(CORE_OBJS),$(OPT)/OPTIONS
     @ IF $SEVERITY .NE. 1 THEN EXIT %X10000002
 
+[.build]vmsotel_launch.exe : [.build]launch.obj, $(OPT)
+    $(LINK)/EXECUTABLE=$(MMS$TARGET) [.build]launch.obj,$(OPT)/OPTIONS
+    @ IF $SEVERITY .NE. 1 THEN EXIT %X10000002
+
 ! ==== housekeeping ====
 !
 ! The agent's products only; the probes' objects and images in [.build]
@@ -171,3 +182,4 @@ CLEAN :
     @- IF F$SEARCH("[.build]http*.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]http*.obj;*
     @- IF F$SEARCH("[.build]agent*.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]agent*.obj;*
     @- IF F$SEARCH("[.build]tls.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]tls.obj;*
+    @- IF F$SEARCH("[.build]launch.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]launch.obj;*

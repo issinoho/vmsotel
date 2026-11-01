@@ -1,4 +1,6 @@
 build/
+# MAKE_KIT.COM's output on VMS: [.KIT_X86_64], [.KIT_IA64]
+/kit_*/
 __pycache__/
 
 # Local secrets: never commit.

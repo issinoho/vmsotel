@@ -11,4 +11,6 @@
 #define SS$_NOSUCHDEV   2312
 #define SS$_DEVNOTMOUNT 124
 #define SS$_NOLOGNAM 444
+#define SS$_ABORT       44
+#define SS$_NOSUCHUSER  2896
 #endif

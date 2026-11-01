@@ -1,0 +1,86 @@
+vmsotel @VERSION@ for OpenVMS (@ARCH@)
+======================================
+
+An OpenTelemetry agent: it reports this system's CPU, memory, paging,
+processes, disks and uptime -- and, if asked, chosen processes, the
+operator log and the audit journal -- to an OpenTelemetry collector over
+OTLP/HTTP, with or without TLS. It connects out to the collector;
+nothing listens on this system. It runs as its own account, never as
+SYSTEM.
+
+Requires: OpenVMS x86-64 (tested on E9.2-4) or Integrity (tested on
+V8.4-2L3), VSI TCP/IP Services, and VSI's SSL3 kit.
+
+Setting up (as SYSTEM)
+----------------------
+1. Create the agent's account, set the protections, and create the
+   configuration, once:
+
+     $ @VMSOTEL$ROOT:[COM]VMSOTEL$CONFIGURE
+
+   It asks for the account (default VMSOTEL) and, for a new account,
+   its UIC: choose a group of its own, above MAXSYSGROUP (e.g. [376,1]).
+   The account cannot log in by any route; the agent still runs as it.
+   Its authorized privileges are NETMBX and TMPMBX, plus WORLD and
+   READALL only if VMSOTEL.CONF needs them -- so run it again whenever
+   you turn on per-process metrics or a log. It changes only an account
+   it created.
+
+2. Edit VMSOTEL$ROOT:[CONF]VMSOTEL.CONF (made from VMSOTEL.CONF_EXAMPLE,
+   which explains every setting). Set host to the collector. For TLS,
+   put the collector's certificate (or its CA's) in [CONF] and name it:
+
+     tls = yes
+     cafile = VMSOTEL$ROOT:[CONF]COLLECTOR.CRT
+
+   The certificate is always verified; there is no setting to skip it.
+   A file you add to [CONF] must be readable by the account:
+
+     $ SET FILE/OWNER=VMSOTEL VMSOTEL$ROOT:[CONF]*.*;*
+
+   Check what it would report, without contacting the collector:
+
+     $ VMSOTEL := $VMSOTEL$ROOT:[BIN]VMSOTEL.EXE
+     $ VMSOTEL --SELFTEST
+
+3. Start it:
+
+     $ @VMSOTEL$ROOT:[COM]VMSOTEL_START
+
+   and stop it, letting it send what it has queued:
+
+     $ @VMSOTEL$ROOT:[COM]VMSOTEL_STOP
+
+   Both need IMPERSONATE and WORLD (SYSTEM has them).
+
+4. At boot and shutdown, add to SYS$MANAGER:SYSTARTUP_VMS.COM (after
+   TCP/IP) and SYS$MANAGER:SYSHUTDWN.COM:
+
+     $ @SYS$STARTUP:VMSOTEL$STARTUP.COM
+     $ @SYS$STARTUP:VMSOTEL$SHUTDOWN.COM
+
+   VMSOTEL$STARTUP starts the agent if VMSOTEL$CONFIGURE was told to
+   (SYS$MANAGER:VMSOTEL$CONFIG.COM).
+
+Files
+-----
+  VMSOTEL$ROOT:[BIN]   VMSOTEL_TLS.EXE (used when present: it also speaks
+                       plain HTTP), VMSOTEL.EXE, VMSOTEL_LAUNCH.EXE (starts
+                       the agent as its account)
+  VMSOTEL$ROOT:[COM]   VMSOTEL_START, _STOP, _RUN, _PRIVS, VMSOTEL$CONFIGURE
+  VMSOTEL$ROOT:[CONF]  VMSOTEL.CONF, VMSOTEL.CONF_EXAMPLE
+  VMSOTEL$ROOT:[LOG]   VMSOTEL.LOG (the agent's, one line per event),
+                       VMSOTEL_RUN.LOG (DCL's, five versions kept)
+  VMSOTEL$ROOT:[DOC]   this file, OPERATIONS.MD (every log line explained),
+                       LICENSE.
+  SYS$MANAGER:VMSOTEL$CONFIG.COM   the account, and whether to start at boot
+
+PRODUCT REMOVE VMSOTEL stops the agent and deassigns VMSOTEL$ROOT and
+VMSOTEL$USER. VMSOTEL.CONF, the logs, the site settings and the account
+are kept, so a reinstall carries on where it left off.
+
+When it does not start, VMSOTEL$ROOT:[LOG]VMSOTEL_RUN.LOG says why;
+when it does not send, VMSOTEL.LOG does. The source and the full
+documentation are at https://github.com/issinoho/vmsotel.
+
+vmsotel is distributed under the MIT licence; see LICENSE.

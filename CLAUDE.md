@@ -40,6 +40,14 @@ both machines); the reader is `src/sources/vms/vms_logs.c`, run here
 against the stub's files, which the agent self-test writes to while
 the agent reads them.
 
+The PCSI kit (`kit/`, `src/launch/launch.c`; `docs/design.md`, "The
+installation kit") is built and checked here but has not run on VMS.
+Installed, the agent runs as its own account, started by persona
+(`VMSOTEL_LAUNCH.EXE`), as vms-beszel's agent is. `VMSOTEL_START`,
+`_RUN` and `_STOP` serve both layouts. A file added to the kit touches
+`kit/vmsotel.pcsi$desc` and `kit/make_kit.com` together;
+`tools/check_kit.py`, in `make check`, fails if they drift.
+
 ## Where it lives
 
 Its own repository, `issinoho/vmsotel`. It started under

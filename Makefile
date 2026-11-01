@@ -40,7 +40,8 @@ AGENT_HDRS = $(wildcard src/*/*.h) $(wildcard tests/*.h)
 CORE_OBJ = $(B)/model.o $(B)/procfilter.o $(B)/logparse.o $(B)/otlp_json.o \
            $(B)/platform_posix.o $(B)/queue.o $(B)/config.o \
            $(B)/fake_source.o $(B)/fake_logs.o
-AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
+AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub \
+         $(B)/vmsotel_launch_vmsstub
 
 # The VMS source, built here against stub/ so its logic runs before it
 # costs a round trip. Like the probes it takes '$' in identifiers, so
@@ -117,6 +118,14 @@ VMS_CORE_OBJ = $(filter-out $(B)/fake_source.o $(B)/fake_logs.o,$(CORE_OBJ)) \
 $(B)/vmsotel_vmsstub: $(B)/agent.o $(B)/http.o $(VMS_CORE_OBJ) $(B)/vmsstub.o
 	$(CC) -o $@ $^
 
+# The kit's launcher (src/launch): VMS system services, so against the
+# stub, which knows one account, VMSOTEL, and prints the process it is
+# asked to create. OpenSSL for --password.
+$(B)/launch.o: src/launch/launch.c stub/*.h | $(B)
+	$(CC) $(VMSISH) -c -o $@ $<
+$(B)/vmsotel_launch_vmsstub: $(B)/launch.o $(B)/vmsstub.o
+	$(CC) -o $@ $^ -lcrypto
+
 # Test-only: makes CLOCK_MONOTONIC step back an hour, for the agent
 # self-test. Linux and glibc; not part of the agent, not strict C99.
 $(B)/clockjump.so: tests/clockjump.c | $(B)
@@ -154,6 +163,20 @@ check: all
 	$(B)/test_transport vmsotel.conf.example
 	$(PYTHON) -I tools/fake_collector.py --validate $(GOLDEN)
 	python3 -I tools/check_build_files.py Makefile build_vms.com descrip.mms
+	python3 -I tools/check_kit.py
+	$(B)/vmsotel --version | grep -qx 'vmsotel 0.1.0'
+	$(B)/vmsotel_launch_vmsstub VMSOTEL DKA0:[X.COM]R.COM DKA0:[X.LOG]R.LOG vmsotel > $(B)/launch.out
+	grep -q 'as persona 7, input DKA0:\[X.COM\]R.COM, output DKA0:\[X.LOG\]R.LOG, error DKA0:\[X.LOG\]R.LOG, name VMSOTEL, priority 4, flags 0x200, quotas 1=100 3=200000 12=500 6=100 2=100 5=100 7=300000 9=20 10=4096 11=16384 13=32768$$' $(B)/launch.out
+	grep -q '^vmsotel_launch: process 02001234 started as VMSOTEL$$' $(B)/launch.out
+	! $(B)/vmsotel_launch_vmsstub vmsotel_x a.com a.log vmsotel > $(B)/launch.out
+	grep -q 'cannot take on the account VMSOTEL_X' $(B)/launch.out
+	! STUB_CREPRC_FAIL=1 $(B)/vmsotel_launch_vmsstub vmsotel a.com a.log vmsotel > $(B)/launch.out
+	grep -q 'cannot create the process as VMSOTEL' $(B)/launch.out
+	! $(B)/vmsotel_launch_vmsstub vmsotel a.com a.log process_name_too_long > /dev/null
+	$(B)/vmsotel_launch_vmsstub --password > $(B)/launch.out
+	$(B)/vmsotel_launch_vmsstub --password >> $(B)/launch.out
+	test "$$(grep -cxE '[A-Z0-9]{32}' $(B)/launch.out)" = 2
+	test "$$(sort -u $(B)/launch.out | wc -l)" = 2
 	$(B)/vmsotel_vmsstub --selftest
 	$(PYTHON) -I tools/fake_collector.py --agent-selftest $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
 	rm -f $(B)/stub_operator.log $(B)/stub_audit.journal

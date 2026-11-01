@@ -439,6 +439,10 @@ int main(int argc, char **argv)
 
     if (argc == 2 && strcmp(argv[1], "--selftest") == 0)
         return vo_source_selftest() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+        printf("vmsotel %s\n", VO_VERSION);
+        return EXIT_SUCCESS;
+    }
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--cycles") == 0 && i + 1 < argc)
@@ -457,7 +461,8 @@ int main(int argc, char **argv)
     if (config_path == NULL) {
         printf("usage: vmsotel CONFIG [--log FILE] [--stop-file FILE]\n"
                "                      [--cycles N] [--drain SECONDS]\n"
-               "       vmsotel --selftest\n");
+               "       vmsotel --selftest\n"
+               "       vmsotel --version\n");
         return EXIT_FAILURE;
     }
     if (!read_config(config_path, &a.cfg))

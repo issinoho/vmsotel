@@ -117,7 +117,10 @@ docker-nuc has been copied into `[.vmsotel]`. `descrip.mms` builds the
 same images with `MMS CLEAN` and `MMS` (capitals: with the extended
 parse style a lower-case target is not found), on both machines.
 
-To run the agent as a service, see `docs/operations.md`.
+To run the agent as a service, see `docs/operations.md`. To make the
+PCSI kit, which installs it to run as an account of its own, run
+`@[.vmsotel.kit]make_kit` after `build_vms`; the kit is written to
+`[.vmsotel.KIT_<arch>]` (`docs/design.md`, "The installation kit").
 
 That builds the six probes, runs them, and runs `SHOW SYSTEM` and
 `SHOW DEVICE D` beside the probes that need comparing with them. Run it

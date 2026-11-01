@@ -590,3 +590,75 @@ void probe_stub_request(const char *text)
                "\"%s\"\n", text);
     fclose(f);
 }
+
+/* ---- personas and $CREPRC, for the launcher ---- */
+
+static unsigned int stub_persona;       /* 0: our own; else assumed */
+
+static void stub_dsc(char *out, size_t cap, void *d)
+{
+    struct dsc$descriptor_s *s = d;
+    size_t n = s->dsc$w_length < cap - 1 ? s->dsc$w_length : cap - 1;
+
+    memcpy(out, s->dsc$a_pointer, n);
+    out[n] = '\0';
+}
+
+int sys$persona_create(unsigned int *persona, void *usrnam,
+                       unsigned int flags, void *usrpro, void *itmlst)
+{
+    char u[64];
+
+    (void) flags, (void) usrpro, (void) itmlst;
+    stub_dsc(u, sizeof u, usrnam);
+    if (strcmp(u, "VMSOTEL") != 0)
+        return SS$_NOSUCHUSER;
+    *persona = 7;
+    return SS$_NORMAL;
+}
+
+int sys$persona_assume(unsigned int *persona, unsigned int flags,
+                       void *retpersona, void *itmlst)
+{
+    (void) flags, (void) retpersona, (void) itmlst;
+    stub_persona = *persona == 1 ? 0 : *persona;
+    return SS$_NORMAL;
+}
+
+int sys$persona_delete(unsigned int *persona)
+{
+    if (*persona == stub_persona)
+        return SS$_BADPARAM;        /* VMS refuses to delete the one in use */
+    *persona = 0;
+    return SS$_NORMAL;
+}
+
+int sys$creprc(unsigned int *pidadr, void *image, void *input,
+               void *output, void *error, void *prvadr, void *quota,
+               void *prcnam, unsigned int baspri, unsigned int uic,
+               unsigned short mbxunt, unsigned int stsflg, void *itmlst,
+               void *node)
+{
+    char im[300], in[300], out[300], err[300], name[64];
+    const unsigned char *q = quota;
+    size_t i;
+
+    (void) prvadr, (void) uic, (void) mbxunt, (void) itmlst, (void) node;
+    stub_dsc(im, sizeof im, image);
+    stub_dsc(in, sizeof in, input);
+    stub_dsc(out, sizeof out, output);
+    stub_dsc(err, sizeof err, error);
+    stub_dsc(name, sizeof name, prcnam);
+    printf("stub: $CREPRC %s as persona %u, input %s, output %s, error %s, "
+           "name %s, priority %u, flags %#x, quotas", im, stub_persona, in,
+           out, err, name, baspri, stsflg);
+    for (i = 0; q != NULL && q[i] != 0; i += 5)
+        printf(" %u=%lu", q[i], (unsigned long) q[i + 1] |
+               (unsigned long) q[i + 2] << 8 | (unsigned long) q[i + 3] << 16 |
+               (unsigned long) q[i + 4] << 24);
+    printf("\n");
+    if (getenv("STUB_CREPRC_FAIL"))
+        return SS$_NOPRIV;
+    *pidadr = 0x2001234;
+    return SS$_NORMAL;
+}

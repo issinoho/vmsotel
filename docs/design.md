@@ -361,6 +361,60 @@ is found.
 - The log is standard output, one line per event, UTC: start, failures
   and their reasons, drops, a CPU mode given up, clock warnings.
 
+### The installation kit
+
+A PCSI kit, `ISSINOHO <base> VMSOTEL`, built on each machine by
+`@[.vmsotel.kit]MAKE_KIT` after `build_vms`, as the user's other ports
+are (vms-beszel is the model). Decided with the user on 2026-11-01:
+
+- **Layout.** `PRODUCT INSTALL` puts the product in `[VMSOTEL]` under
+  its destination (`SYS$COMMON:` by default), rooted by the concealed
+  system logical `VMSOTEL$ROOT`: `[BIN]` the two agent images and the
+  launcher, `[COM]` the procedures, `[CONF]` the configuration,
+  `[LOG]` the logs and the stop file, `[DOC]`; and
+  `SYS$STARTUP:VMSOTEL$STARTUP.COM` and `VMSOTEL$SHUTDOWN.COM`. The
+  configuration and the logs are never in the kit, so an upgrade or a
+  `PRODUCT REMOVE` leaves them.
+- **One set of procedures.** `VMSOTEL_START`, `_RUN` and `_STOP` find
+  everything relative to themselves, and tell the two layouts apart:
+  in `[COM]` beside a `[BIN]` they use the kit's directories, otherwise
+  the source tree's, as before. Nothing changes for the source tree.
+- **Its own account.** Installed, the agent never runs as SYSTEM: a
+  system-group UIC reaches nearly every file through protection codes
+  alone, whatever the process privileges (vms-beszel's D12).
+  `VMSOTEL$CONFIGURE.COM` creates `VMSOTEL` in a UIC group above
+  `MAXSYSGROUP`, not disusered (a persona refuses that) but with every
+  login class taken away, `LGICMD NL:`, `DISCTLY`, `LOCKPWD`, and a
+  random password nobody needs. `VMSOTEL_START` refuses, in the kit
+  layout, an account that is unknown or in a system group.
+- **Started by persona.** `RUN/DETACHED/UIC` keeps the creator's
+  username and authorized privileges (vms-beszel NOTES 36), so
+  `VMSOTEL_LAUNCH.EXE` takes on the account's persona, creates the
+  detached LOGINOUT process under it, and drops it (vms-beszel's D14,
+  shown on these two machines there; written here, not copied). It
+  needs IMPERSONATE, which a system startup has. It gives the process
+  the quotas `VMSOTEL_START` gave before. The launcher also makes the
+  account's password, from OpenSSL's generator.
+- **Authorized only what the configuration needs.** NETMBX and
+  TMPMBX, WORLD if it has a `process.` line, READALL if it turns on a
+  log: the scan `VMSOTEL_START` already did, now in
+  `VMSOTEL_PRIVS.COM` so that `VMSOTEL$CONFIGURE` (which sets the
+  account's authorized privileges) and `VMSOTEL_RUN` (which enables
+  them) read the file the same way. A configuration that later asks
+  for more needs `VMSOTEL$CONFIGURE` again; `VMSOTEL_RUN` says so when
+  a privilege will not enable.
+- **Stopped as before**, by the stop file, now in `[LOG]` and
+  readable and deletable by the account, which reads and then deletes
+  it.
+- **Version.** `VO_PCSI_VERSION` beside `VO_VERSION` in
+  `src/model/version.h`; `MAKE_KIT` reads both and refuses images whose
+  `--version` disagrees. `tools/check_kit.py` (in `make check`) checks
+  that every file the product description names is one `MAKE_KIT`
+  gathers from a file that exists.
+
+Not built: a restart when the agent exits. An agent that came back
+silently after failing would hide the failure (`VMSOTEL_START.COM`).
+
 ## TLS
 
 Through the installed OpenSSL, 3.x or 1.1.1, with the same care over

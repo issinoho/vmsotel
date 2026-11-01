@@ -7,8 +7,25 @@ by default. It needs no privilege beyond NETMBX and TMPMBX.
 
 ## Install
 
-The vmsotel tree can live anywhere; everything below is found relative
-to it. From the directory that is to hold it:
+Two ways. **From the PCSI kit** (`ISSINOHO-<base>-VMSOTEL-...PCSI`),
+the agent runs as an account of its own, never as SYSTEM:
+
+```dcl
+$ product install vmsotel /source=dev:[dir]
+$ @VMSOTEL$ROOT:[COM]VMSOTEL$CONFIGURE
+```
+
+then set `host` in `VMSOTEL$ROOT:[CONF]VMSOTEL.CONF`, and start it with
+`@VMSOTEL$ROOT:[COM]VMSOTEL_START`. `VMSOTEL$ROOT:[DOC]README.VMS` has
+the rest, and `docs/design.md`, "The installation kit", the reasons.
+The kit is built from a source tree by `@[.vmsotel.kit]MAKE_KIT` after
+`build_vms`, into `[.vmsotel.KIT_<arch>]`. Everything else on this page
+applies to both; in the kit, `VMSOTEL.CONF` is in `[CONF]`, the logs and
+the stop file in `[LOG]`, and the procedures in `[COM]`.
+
+**From a source tree**, which runs as whoever starts it. The tree can
+live anywhere; everything below is found relative to it. From the
+directory that is to hold it:
 
 ```dcl
 $ git clone https://github.com/issinoho/vmsotel.git

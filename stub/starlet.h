@@ -28,4 +28,16 @@ int sys$trnlnm(unsigned int *attr, void *tabnam, void *lognam,
 int sys$getdviw(unsigned int efn, unsigned short chan, void *devnam,
                 void *itmlst, void *iosb, void (*astadr)(void), int astprm,
                 void *nullarg);
+/* The launcher's. The stub knows one account, VMSOTEL; $CREPRC prints
+   what it was asked to create instead of creating it. */
+int sys$persona_create(unsigned int *persona, void *usrnam,
+                       unsigned int flags, void *usrpro, void *itmlst);
+int sys$persona_assume(unsigned int *persona, unsigned int flags,
+                       void *retpersona, void *itmlst);
+int sys$persona_delete(unsigned int *persona);
+int sys$creprc(unsigned int *pidadr, void *image, void *input,
+               void *output, void *error, void *prvadr, void *quota,
+               void *prcnam, unsigned int baspri, unsigned int uic,
+               unsigned short mbxunt, unsigned int stsflg, void *itmlst,
+               void *node);
 #endif

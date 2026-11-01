@@ -213,6 +213,32 @@ $ else
 $     built = built + " vmsotel_tls.exe"
 $ endif
 $!
+$!---------------------------------------------------------------------
+$! VMSOTEL_LAUNCH.EXE: the kit starts the agent as its account with it
+$!---------------------------------------------------------------------
+$!
+$! Persona services and $CREPRC, and OpenSSL's generator for the
+$! account's password: so the pointer size of the ..._SHR32 images,
+$! like tls.c, and the same options file.
+$ say "compiling and linking vmsotel_launch.exe"
+$ failed_before = failed
+$ cobj = "launch"
+$ csrc = "[.src.launch]launch.c"
+$ cflags = "/POINTER_SIZE=32"
+$ gosub compile
+$ cflags = ""
+$ if failed .nes. failed_before then goto summary
+$ link /EXECUTABLE=[.build]vmsotel_launch.exe [.build]launch.obj, -
+      [.build]vmsotel_ssl.opt/OPTIONS
+$ if $severity .ne. 1
+$ then
+$     failed = failed + " vmsotel_launch.exe"
+$     if f$search("[.build]vmsotel_launch.exe") .nes. "" then -
+          delete/nolog [.build]vmsotel_launch.exe;*
+$ else
+$     built = built + " vmsotel_launch.exe"
+$ endif
+$!
 $ summary:
 $ say ""
 $ say "built:''built'"
@@ -352,7 +378,7 @@ $ clean:
 $ if f$search("[.build]vmsotel*.exe") .nes. "" then -
       delete/nolog [.build]vmsotel*.exe;*
 $ agent_objs = "model,procfilter,logparse,otlp_json,platform_posix,queue,config,http," + -
-               "agent,vms_source,vms_logs,http_tls,agent_tls,tls"
+               "agent,vms_source,vms_logs,http_tls,agent_tls,tls,launch"
 $ i = 0
 $ clean_loop:
 $   o = f$element(i, ",", agent_objs)
