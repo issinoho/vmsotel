@@ -427,7 +427,8 @@ def agent_selftest(plain, tls, vmsstub=None):
     check(f"stop with the collector down: {lost.group(1) if lost else '?'} "
           "lost exports logged and counted",
           rc == 0 and lost is not None and
-          f"{lost.group(1)} dropped" in log and "waiting" in log, log)
+          f"{lost.group(1)} dropped" in log and "waiting" in log and
+          "retrying" not in log.split("stop requested")[-1], log)
 
     if vmsstub:
         env = dict(os.environ, STUB_TDF="3600")

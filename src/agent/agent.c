@@ -158,6 +158,7 @@ typedef struct {
     vo_u64 backoff_ms;
     int cpu_logged[VO_CPU_MODES];
     int skew_warned;
+    int stopping;               /* the last attempt: nothing is retried */
 } agent;
 
 static void collect(agent *a)
@@ -250,6 +251,15 @@ static int send_one(agent *a)
     }
 
     a->stats.exports_failed++;
+    if (a->stopping) {
+        if (r.status != 0)
+            vo_log("export failed, HTTP %d%s%s; %u waiting", r.status,
+                   r.message[0] ? ": " : "", r.message, a->queue.count);
+        else
+            vo_log("export failed: %s; %u waiting", r.message,
+                   a->queue.count);
+        return 0;
+    }
     a->backoff_ms = a->backoff_ms == 0 ? 1000 : a->backoff_ms * 2;
     if (a->backoff_ms > a->interval_ms)
         a->backoff_ms = a->interval_ms;
@@ -273,6 +283,7 @@ static void finish(agent *a, unsigned long done)
 {
     unsigned lost;
 
+    a->stopping = 1;
     while (a->queue.count > 0 && send_one(a))
         ;
     lost = a->queue.count;
