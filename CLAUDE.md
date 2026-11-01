@@ -20,9 +20,11 @@ yet run there: `descrip.mms`, a start from SYSTARTUP_VMS.COM, TLS (needs
 review. `make check` also checks that the three build files agree.
 
 Phase 2, per-process metrics for processes chosen by name or user
-(`process.name`, `process.user`; WORLD), is written and tested on
-Linux, not yet run on VMS (findings 32). It rests on findings 11, 12
-and 31; nothing new needed probing.
+(`process.name`, `process.user`; WORLD), has run on both machines: the
+collector's per-process CPU and memory equal SHOW SYSTEM exactly
+(findings 32). It rested on findings 11, 12 and 31; nothing new needed
+probing. Next in docs/design.md, "Phases": 3, logs (OPCOM and audit),
+which needs its own probes.
 
 ## Where it lives
 
