@@ -400,15 +400,27 @@ static void make_samples(void)
     if ((f = fopen(STUB_JOURNAL, "rb")) != NULL)
         fclose(f);
     else if ((f = fopen(STUB_JOURNAL, "wb")) != NULL) {
+        /* NSAMSGDEF as x86's journal showed it: a LOGFAIL (type 5,
+           subtype 4, flags 1c), three packets of word size (with its
+           own 4 bytes), word type, data; 56 bytes in all. */
         static const unsigned char r1[] = {
-            0x20, 0x00, 0x05, 0x00, 0x01, 0x00, 0x03, 0x00,
-            'S', 'T', 'U', 'B', ' ', 'L', 'O', 'G', 'I', 'N' };
+            0x05, 0x00, 0x04, 0x00, 0x1c, 0x00, 0x03, 0x00,
+            0x38, 0x00, 0x00, 0x03, 0, 0, 0, 0, 0, 0, 0x00, 0x00,
+            0x0c, 0x00, 0x06, 0x00, 'S', 'E', 'C', 'U', 'R', 'I', 'T', 'Y',
+            0x0c, 0x00, 0x03, 0x00, 'S', 'E', 'C', 'U', 'R', 'I', 'T', 'Y',
+            0x0c, 0x00, 0x31, 0x00, 'F', 'T', 'A', '6', '5', '7', '4', ':' };
         int i;
 
         for (i = 0; i < 3; i++) {
-            fputc((int) sizeof r1, f);
+            unsigned char r[sizeof r1];
+
+            memcpy(r, r1, sizeof r);
+            /* STUB_BAD_AUDIT: the last record claims a size it lacks. */
+            if (i == 2 && getenv("STUB_BAD_AUDIT"))
+                r[8] = 0x40;
+            fputc((int) sizeof r, f);
             fputc(0, f);
-            fwrite(r1, 1, sizeof r1, f);
+            fwrite(r, 1, sizeof r, f);
         }
         fclose(f);
     }

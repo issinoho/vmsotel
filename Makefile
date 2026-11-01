@@ -145,10 +145,14 @@ check: all
 	python3 -I tools/check_build_files.py Makefile build_vms.com descrip.mms
 	$(B)/vmsotel_vmsstub --selftest
 	$(PYTHON) -I tools/fake_collector.py --agent-selftest $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
+	rm -f $(B)/stub_operator.log $(B)/stub_audit.journal
 	for p in $(VMS_PROBES); do echo "== $$p"; $$p || exit 1; done
 	rm -f $(B)/stub_operator.log
 	$(B)/probe_logs --request | grep -q 'tailing works'
 	STUB_NO_TAIL=1 $(B)/probe_logs --request | grep -q 'tail by reopening'
+	rm -f $(B)/stub_audit.journal
+	! STUB_BAD_AUDIT=1 $(B)/probe_logs | grep -q 'packets add up'
+	rm -f $(B)/stub_audit.journal
 	$(PYTHON) -I tools/fake_collector.py --selftest $(B)/probe_otlp $(B)/probe_otlp_tls
 
 clean:

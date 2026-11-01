@@ -227,6 +227,8 @@ $ oplog = f$trnlnm("OPC$LOGFILE_NAME")
 $ if oplog .eqs. "" then oplog = "SYS$MANAGER:OPERATOR.LOG"
 $ say "=== the operator log: ''oplog'"
 $ directory/owner/protection/size/date 'oplog'
+$ say "=== REPLY/STATUS (needs OPER): which classes the operator log takes"
+$ reply/status
 $ say "=== SHOW AUDIT/JOURNAL"
 $ show audit/journal
 $ say "=== the audit journal"
@@ -250,15 +252,9 @@ $     say "NSADEF not found in SYS$LIB_C.TLB or SYS$STARLET_C.TLB"
 $     goto finish
 $ endif
 $ say "from ''nsa'; the whole module is in [.build]nsadef.h"
-$ open/read nf [.build]nsadef.h
-$ nline = 0
-$ nsa_loop:
-$   read/end_of_file=nsa_done nf line
-$   say line
-$   nline = nline + 1
-$   if nline .lt. 160 then goto nsa_loop
-$ nsa_done:
-$ close nf
+$! The header (NSAMSGDEF) was printed and confirmed last time; now the
+$! packet layout and the packet type codes.
+$ search [.build]nsadef.h "nsa$w_packet_size","nsa$w_packet_type","NSA$C_PKT_"
 $ goto finish
 $!
 $ headers:

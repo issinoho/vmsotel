@@ -241,17 +241,27 @@ static void opcom(const char *name, int request)
 
     sprintf(marker, "vmsotel probe_logs marker %lu", (unsigned long) time(NULL));
     send_request(marker);
-    sleep(5);
 
-    /* The same stream, after EOF: does RMS hand over what was added? */
-    more = read_all(&f, n, NULL, NULL, &end);
-    printf("  on the open stream after 5 s: %lu new records, then %s\n",
-           more, probe_msg(end));
-    for (i = n; i < n + more && i < n + KEEP; i++) {
-        print_text(kept[i % KEEP], kept_len[i % KEEP]);
-        if (contains(kept[i % KEEP], kept_len[i % KEEP], marker))
-            seen = 1;
+    /*
+     * The same stream, after EOF: does RMS hand over what was added?
+     * Polled every 5 s for a minute: on x86 nothing had appeared after
+     * 5 s, which may only mean OPCOM had not written it yet.
+     */
+    more = 0;
+    for (i = 0; i < 12 && !seen; i++) {
+        unsigned long got, k;
+
+        sleep(5);
+        got = read_all(&f, n + more, NULL, NULL, &end);
+        for (k = n + more; k < n + more + got; k++)
+            if (contains(kept[k % KEEP], kept_len[k % KEEP], marker))
+                seen = 1;
+        more += got;
+        printf("  on the open stream after %2lu s: %lu new records\n",
+               (i + 1) * 5, more);
     }
+    for (i = n; i < n + more && i < n + KEEP; i++)
+        print_text(kept[i % KEEP], kept_len[i % KEEP]);
     if (seen) {
         probe_ok("the marker appeared on the open stream: tailing works");
         r_close(&f);
@@ -284,6 +294,54 @@ static void opcom(const char *name, int request)
 }
 
 /* ---- audit --------------------------------------------------------- */
+
+/*
+ * Reads a record by NSADEF's NSAMSGDEF, as x86's journal showed it: a
+ * 20-byte header (word type, word subtype, word flags, word packet
+ * count, word record size, byte spare, byte version, three spare
+ * words, word facility), then packets of word size (including its own
+ * four bytes), word type, data. Checks the packets add up to the
+ * size. Returns 1 if they do.
+ */
+static int decode_nsa(const unsigned char *b, unsigned short len, int print)
+{
+    unsigned type, subtype, flags, count, size, version, k;
+    unsigned off = 20;
+
+    if (len < 20)
+        return 0;
+    type = b[0] | b[1] << 8;
+    subtype = b[2] | b[3] << 8;
+    flags = b[4] | b[5] << 8;
+    count = b[6] | b[7] << 8;
+    size = b[8] | b[9] << 8;
+    version = b[11];
+    if (print)
+        printf("    type %u subtype %u flags %04x packets %u size %u "
+               "version %u facility %u\n", type, subtype, flags, count,
+               size, version, (unsigned) (b[18] | b[19] << 8));
+    for (k = 0; k < count; k++) {
+        unsigned psize, ptype, i, text = 1;
+
+        if (off + 4 > len)
+            return 0;
+        psize = b[off] | b[off + 1] << 8;
+        ptype = b[off + 2] | b[off + 3] << 8;
+        if (psize < 4 || off + psize > len)
+            return 0;
+        for (i = off + 4; i < off + psize; i++)
+            if (b[i] < 32 || b[i] > 126)
+                text = 0;
+        if (print) {
+            printf("      packet type %3u, %3u bytes: ", ptype, psize - 4);
+            for (i = off + 4; i < off + psize && i < off + 4 + 48; i++)
+                printf(text ? "%c" : "%02x ", b[i]);
+            printf("\n");
+        }
+        off += psize;
+    }
+    return size == len && off == len;
+}
 
 static void audit(const char *name)
 {
@@ -324,6 +382,31 @@ static void audit(const char *name)
     print_kept(n, 1);
     if (end != RMS$_EOF)
         probe_fail("read the audit journal to its end");
+    r_close(&f);
+
+    /* Every record decoded against NSAMSGDEF; the last few printed. */
+    st = r_open(&f, name);
+    if (!(st & 1))
+        return;
+    {
+        unsigned long good = 0, bad = 0, i = 0;
+
+        while (r_get(&f) & 1) {
+            if (decode_nsa(rec, f.rab.rab$w_rsz, 0))
+                good++;
+            else if (++bad <= 3)
+                print_hex(rec, f.rab.rab$w_rsz);
+            keep(i++, f.rab.rab$w_rsz);
+        }
+        printf("  decoded by NSAMSGDEF: %lu records consistent, %lu not\n",
+               good, bad);
+        for (i = n > 3 ? n - 3 : 0; i < n; i++)
+            decode_nsa(kept[i % KEEP], kept_len[i % KEEP], 1);
+        if (bad == 0 && good > 0)
+            probe_ok("every record's packets add up to its NSA$W_RECORD_SIZE");
+        else
+            probe_fail("records that do not fit NSAMSGDEF (dumped above)");
+    }
     r_close(&f);
 }
 
