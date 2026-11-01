@@ -69,6 +69,9 @@ $ gosub compile
 $ cobj = "procfilter"
 $ csrc = "[.src.model]procfilter.c"
 $ gosub compile
+$ cobj = "logparse"
+$ csrc = "[.src.model]logparse.c"
+$ gosub compile
 $ cobj = "otlp_json"
 $ csrc = "[.src.otlp]otlp_json.c"
 $ gosub compile
@@ -94,7 +97,7 @@ $ cflags = "/DEFINE=(_SOCKADDR_LEN)"
 $ gosub compile
 $ cflags = ""
 $!
-$ core = "[.build]model.obj,[.build]procfilter.obj," + -
+$ core = "[.build]model.obj,[.build]procfilter.obj,[.build]logparse.obj," + -
          "[.build]otlp_json.obj,[.build]platform_posix.obj," + -
          "[.build]queue.obj,[.build]config.obj,[.build]vms_source.obj"
 $ if failed .nes. "" then goto summary
@@ -308,7 +311,7 @@ $! CLEAN: the agent's images and objects only; the probes' stay.
 $ clean:
 $ if f$search("[.build]vmsotel*.exe") .nes. "" then -
       delete/nolog [.build]vmsotel*.exe;*
-$ agent_objs = "model,procfilter,otlp_json,platform_posix,queue,config,http," + -
+$ agent_objs = "model,procfilter,logparse,otlp_json,platform_posix,queue,config,http," + -
                "agent,vms_source,http_tls,agent_tls,tls"
 $ i = 0
 $ clean_loop:

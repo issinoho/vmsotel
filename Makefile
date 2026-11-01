@@ -37,7 +37,7 @@ AGENT_CFLAGS = $(STRICT) $(AGENT_INC)
 AGENT_HDRS = $(wildcard src/*/*.h) $(wildcard tests/*.h)
 
 # Objects that do not change with TLS, and the two that do.
-CORE_OBJ = $(B)/model.o $(B)/procfilter.o $(B)/otlp_json.o \
+CORE_OBJ = $(B)/model.o $(B)/procfilter.o $(B)/logparse.o $(B)/otlp_json.o \
            $(B)/platform_posix.o $(B)/queue.o $(B)/config.o \
            $(B)/fake_source.o
 AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
@@ -47,7 +47,7 @@ AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
 # no -pedantic; the stub headers come first on its include path.
 VMS_SRC_CFLAGS = $(VMSISH) $(AGENT_INC)
 
-TESTS = $(B)/test_model $(B)/test_otlp $(B)/test_transport
+TESTS = $(B)/test_model $(B)/test_logs $(B)/test_otlp $(B)/test_transport
 GOLDEN = tests/golden/full.json tests/golden/minimal.json
 
 ALL = $(PROBES) $(TESTS) $(AGENTS) $(B)/clockjump.so
@@ -75,6 +75,8 @@ $(B)/probe_otlp_tls: probes/probe_otlp.c | $(B)
 $(B)/model.o: src/model/model.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 $(B)/procfilter.o: src/model/procfilter.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/logparse.o: src/model/logparse.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 $(B)/otlp_json.o: src/otlp/otlp_json.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
@@ -121,6 +123,9 @@ $(B)/fixture.o: tests/fixture.c $(AGENT_HDRS) | $(B)
 $(B)/test_model: tests/test_model.c $(B)/fixture.o $(B)/model.o $(B)/procfilter.o
 	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/procfilter.o
 
+$(B)/test_logs: tests/test_logs.c $(B)/logparse.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/logparse.o
+
 $(B)/test_otlp: tests/test_otlp.c $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o
 	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o
 
@@ -139,6 +144,7 @@ golden: $(B)/test_otlp
 
 check: all
 	$(B)/test_model
+	$(B)/test_logs
 	$(B)/test_otlp tests/golden
 	$(B)/test_transport vmsotel.conf.example
 	$(PYTHON) -I tools/fake_collector.py --validate $(GOLDEN)

@@ -37,12 +37,13 @@ CFLAGS = /STANDARD=C99/PREFIX_LIBRARY_ENTRIES=ALL_ENTRIES$(INCLUDES)
 
 OPT = [.build]vmsotel_ssl.opt
 
-CORE_OBJS = [.build]model.obj,[.build]procfilter.obj,[.build]otlp_json.obj,-
+CORE_OBJS = [.build]model.obj,[.build]procfilter.obj,[.build]logparse.obj,-
+[.build]otlp_json.obj,-
 [.build]platform_posix.obj,[.build]queue.obj,[.build]config.obj,-
 [.build]vms_source.obj
 
 HEADERS = [.src.model]model.h,[.src.model]vo_types.h,[.src.model]version.h,-
-[.src.model]procfilter.h,-
+[.src.model]procfilter.h,[.src.model]logparse.h,-
 [.src.otlp]otlp_json.h,[.src.platform]platform.h,[.src.transport]http.h,-
 [.src.transport]tls.h,[.src.transport]queue.h,[.src.sources]source.h,-
 [.src.agent]config.h
@@ -66,6 +67,9 @@ ALL : [.build]vmsotel.exe, [.build]vmsotel_tls.exe
 
 [.build]procfilter.obj : [.src.model]procfilter.c, $(HEADERS)
     $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.model]procfilter.c
+
+[.build]logparse.obj : [.src.model]logparse.c, $(HEADERS)
+    $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.model]logparse.c
 
 [.build]otlp_json.obj : [.src.otlp]otlp_json.c, $(HEADERS)
     $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.otlp]otlp_json.c
@@ -142,6 +146,7 @@ CLEAN :
     @- IF F$SEARCH("[.build]vmsotel_ssl.opt") .NES. "" THEN DELETE/NOCONFIRM [.build]vmsotel_ssl.opt;*
     @- IF F$SEARCH("[.build]model.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]model.obj;*
     @- IF F$SEARCH("[.build]procfilter.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]procfilter.obj;*
+    @- IF F$SEARCH("[.build]logparse.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]logparse.obj;*
     @- IF F$SEARCH("[.build]otlp_json.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]otlp_json.obj;*
     @- IF F$SEARCH("[.build]platform_posix.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]platform_posix.obj;*
     @- IF F$SEARCH("[.build]queue.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]queue.obj;*
