@@ -180,6 +180,13 @@ mark a question answered from one machine's output.
 
 ## Commits
 
+**Stage files by name; never `git add -A` or `git commit -a` over
+untracked files.** On 2026-11-01 `git add -A` swept a password file
+someone had put in `tools/` into a commit pushed to this public
+repository; history had to be rewritten and the password changed.
+Check `git status --short` before every commit, and add anything
+local that must never go out to `.gitignore`.
+
 Explain why, not just what — especially the reasoning behind a VMS
 workaround, since that is what makes it defensible later. Record what
 was verified and how, and say plainly what has not run on VMS.
