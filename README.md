@@ -155,4 +155,4 @@ configuration on docker-nuc. The agent has run on both too: built by
 exports the collector decoded, and it ran detached and stopped cleanly
 through `vmsotel_start.com` and `vmsotel_stop.com`. `docs/findings.md`
 has each result and what has not yet been seen: a start from
-`SYSTARTUP_VMS.COM`, TLS from VMS.
+`SYSTARTUP_VMS.COM`.
