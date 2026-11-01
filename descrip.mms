@@ -4,9 +4,13 @@
 !     $ MMS                build VMSOTEL.EXE and VMSOTEL_TLS.EXE
 !     $ MMS CLEAN          remove the agent's objects and images
 !
+! Type the target in capitals. With SET PROCESS/PARSE_STYLE=EXTENDED,
+! DCL passes "clean" through in lower case, and MMS does not match it
+! to CLEAN (%MMS-F-BADTARG, x86, findings 42).
+!
 ! build_vms.com is the path to try first: it finds the OpenSSL kit,
 ! runs the self-test, and checks everything it does. This file builds
-! the same images from the same flags, and has not yet been run on VMS.
+! the same images from the same flags (findings 42).
 !
 ! Keep it in step with build_vms.com and the Makefile: a source file
 ! added to one must be added to all three. vmsguard learned that each
@@ -149,7 +153,7 @@ $(CORE_OBJS)
 ! ==== housekeeping ====
 !
 ! The agent's products only; the probes' objects and images in [.build]
-! are left alone. Target names are case-blind (vmsguard): no aliases.
+! are left alone. No lower-case alias: see the note at the top.
 
 CLEAN :
     @- IF F$SEARCH("[.build]vmsotel*.exe") .NES. "" THEN DELETE/NOCONFIRM [.build]vmsotel*.exe;*

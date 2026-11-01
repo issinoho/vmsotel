@@ -15,7 +15,8 @@ here against `stub/` as `build/vmsotel_vmsstub`), the agent loop, and
 `build_vms.com`, `vmsotel_start/run/stop.com` and `docs/operations.md`.
 On VMS: the self-test matched SHOW and MONITOR, exports reached the
 collector intact, and the agent ran detached and stopped cleanly. Not
-yet run there: `descrip.mms`, a start from SYSTARTUP_VMS.COM, TLS (needs
+yet run there: `descrip.mms` on I64 (it built both images on x86,
+findings 42), a start from SYSTARTUP_VMS.COM, TLS (needs
 `collector.crt` on VMS), and the clock-step fix from the phase 1
 review. `make check` also checks that the three build files agree.
 
