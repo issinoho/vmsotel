@@ -568,21 +568,26 @@ int main(int argc, char **argv)
         }
 
         now = vo_time_mono_ms();
-        if (cycles != 0 && done >= cycles) {
-            if (a.queue.count == 0) {
-                vo_log("done: %lu collections, %llu sent, %llu failed "
-                       "attempts, %llu dropped", done,
-                       a.stats.exports_sent, a.stats.exports_failed,
-                       a.stats.exports_dropped);
-                if (a.logs_on)
-                    vo_log("log records: %llu queued, %llu too large",
-                           a.log_records, a.log_records_dropped);
-                return EXIT_SUCCESS;
+        if (cycles != 0 && done >= cycles &&
+            (a.queue.count == 0 || now >= drain_until)) {
+            /* Given up on: say so, and still give the counts, which
+               matter most when the run failed (seen on x86 with TLS
+               refused: the run ended without them). */
+            unsigned lost = a.queue.count;
+
+            if (lost > 0) {
+                a.stats.exports_dropped += lost;
+                vo_log("stopping with %u export%s unsent; %s lost", lost,
+                       lost == 1 ? "" : "s", lost == 1 ? "it is" : "they are");
             }
-            if (now >= drain_until) {
-                vo_log("stopping with %u payloads unsent", a.queue.count);
-                return EXIT_FAILURE;
-            }
+            vo_log("done: %lu collections, %llu sent, %llu failed "
+                   "attempts, %llu dropped", done,
+                   a.stats.exports_sent, a.stats.exports_failed,
+                   a.stats.exports_dropped);
+            if (a.logs_on)
+                vo_log("log records: %llu queued, %llu too large",
+                       a.log_records, a.log_records_dropped);
+            return lost > 0 ? EXIT_FAILURE : EXIT_SUCCESS;
         }
 
         /* At most a second at a time, so a stop is seen within one. */

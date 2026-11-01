@@ -175,7 +175,7 @@ process ends without writing to `VMSOTEL.LOG`.
 | `EXPORT REJECTED, HTTP 404 on /v1/logs: … no logs pipeline …` | the collector takes no logs: add a `logs` pipeline (I64's first run, before docker-nuc's was restarted) |
 | `collector accepted the export but rejected N data points` | partly refused; the message says why |
 | `payload needs N bytes, more than max_payload …` | raise `max_payload` |
-| `stopping with N exports unsent; they are lost` | at stop, the collector could not be reached |
+| `stopping with N exports unsent; they are lost` | at stop, or at the end of a `--cycles` run, the collector could not be reached |
 | `stopped: …` | the summary: collections, sent, failed attempts, dropped |
 | `per-process metrics for N name and M user patterns …` | process.* is set |
 | `N processes could not be read (no WORLD privilege?) …` | the agent lacks WORLD; only its own account's processes are chosen from |

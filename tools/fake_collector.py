@@ -607,7 +607,9 @@ def agent_selftest(plain, tls, vmsstub=None):
           rc != 0 and out.count("queue full (2); oldest metrics payload "
                                 "dropped") == 2
           and "Connection refused" in out and
-          "stopping with 2 payloads unsent" in out, out)
+          "stopping with 2 exports unsent; they are lost" in out and
+          re.search(r"done: 4 collections, 0 sent, \d+ failed attempts, "
+                    r"4 dropped", out) is not None, out)
 
     later = free_port()
     reset()
