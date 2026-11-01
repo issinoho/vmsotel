@@ -412,7 +412,17 @@ and the numbers in MONITOR are the other end.
    operator for OPCOM, and the audit server's listener mailbox -- need
    OPER, SECURITY and a change to the system's audit configuration
    (`SET AUDIT/LISTENER`), so they are held back unless the files
-   cannot do. *(probe: finding 35)*
+   cannot do. The probes say the files can (findings 33–38, both
+   machines): both need READALL or SYSPRV; the operator log is VAR text
+   records and the journal NSAMSGDEF records whose packets carry their
+   own lengths (and may repeat a type); a stream left open never sees
+   new records, so the agent reopens each file every interval and goes
+   back to the last record it sent by its RFA, never rereading from the
+   start (I64's log is 4.5 million records, 41 s to read). OPCOM writes
+   its log in batches minutes apart, so operator messages arrive up to
+   about a quarter of an hour late; each is dated by its own OPCOM
+   header line, with the read time as observed time. An operator
+   mailbox would cut that latency at the cost of OPER.
 4. **Application instrumentation** — a small C library VMS applications
    link to emit their own metrics and spans through the same transport.
 
