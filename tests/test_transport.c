@@ -166,6 +166,25 @@ static void test_config(void)
     CHECK(strcmp(c.extra[1].key, "site") == 0);
     CHECK(strcmp(c.extra[1].value, "Edinburgh") == 0);
 
+    CHECK(config("host = h\nprocess.name = MARIADBD*\nprocess.name = OPCOM\n"
+                 "process.user = LIGHTTPD\n", &c, err) == 0);
+    CHECK(c.procs.nname == 2 && c.procs.nuser == 1);
+    CHECK(strcmp(c.procs.name[0], "MARIADBD*") == 0);
+    CHECK(strcmp(c.procs.user[0], "LIGHTTPD") == 0);
+    CHECK(config("host = h\nprocess.name =\n", &c, err) == 2);
+    CHECK(config("host = h\nprocess.name = "
+                 "THIRTY_THREE_CHARACTERS_LONG_XXXX\n", &c, err) == 2);
+    {
+        char text[2048];
+        int i;
+
+        strcpy(text, "host = h\n");
+        for (i = 0; i < 17; i++)
+            strcat(text, "process.user = U\n");
+        CHECK(config(text, &c, err) == 18);
+        CHECK_CONTAINS(err, "more than 16");
+    }
+
     CHECK(config("port = 4318\n", &c, err) == -1);
     CHECK_CONTAINS(err, "no host");
     CHECK(config("host = h\nbogus = 1\n", &c, err) == 2);

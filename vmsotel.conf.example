@@ -29,3 +29,11 @@ interval = 60
 
 # Extra resource attributes, sent with every export.
 # resource.deployment.environment = lab
+
+# Per-process metrics: processes chosen by name or username, VMS
+# wildcards (* and %), case ignored, each up to 16 times. Other
+# accounts' processes need WORLD; VMSOTEL_START.COM grants it only when
+# a line here begins with process. -- commented out, as below, it does
+# not.
+# process.name = MARIADBD*
+# process.user = LIGHTTPD

@@ -37,10 +37,39 @@ interval = 60
 ```
 
 `vmsotel.conf.example` lists every key: `port`, `path`, `tls`,
-`cafile`, `interval`, `timeout`, `queue`, `max_payload`, and
-`resource.NAME = value` for extra attributes on every export. With
+`cafile`, `interval`, `timeout`, `queue`, `max_payload`,
+`resource.NAME = value` for extra attributes on every export, and
+`process.name` and `process.user` for per-process metrics (below). With
 `tls = yes` the collector's certificate is always verified, against
 `cafile` if given; there is no setting to skip that.
+
+### Per-process metrics
+
+Name the processes to report one by one, by process name or by
+username, with VMS wildcards (`*` any run, `%` one character, case
+ignored). Each may be given up to 16 times; a process is chosen if any
+pattern matches:
+
+```text
+process.name = MARIADBD*
+process.name = OPCOM
+process.user = LIGHTTPD
+```
+
+Each chosen process goes out as its own resource -- the host's
+attributes plus `process.pid`, `openvms.process.id` (the hexadecimal
+PID SHOW SYSTEM prints), `openvms.process.name` and `process.owner` --
+with `process.cpu.time` (seconds; VMS keeps no user/system split per
+process) and `process.memory.usage` (bytes of physical memory, SHOW
+SYSTEM's Pages × 8192). At most 64 processes are reported; if more
+match, the log says so once. Choose servers, not every process: a
+series per PID for everything is what makes a monitoring system drop
+an agent.
+
+Other accounts' processes need WORLD. `VMSOTEL_START.COM` grants it
+when a line of the configuration begins `process.`, and not otherwise;
+commented-out lines do not count. Without
+it the log says how many processes could not be read.
 
 ## Start
 
@@ -100,6 +129,9 @@ process ends without writing to `VMSOTEL.LOG`.
 | `payload needs N bytes, more than max_payload …` | raise `max_payload` |
 | `stopping with N exports unsent; they are lost` | at stop, the collector could not be reached |
 | `stopped: …` | the summary: collections, sent, failed attempts, dropped |
+| `per-process metrics for N name and M user patterns …` | process.* is set |
+| `N processes could not be read (no WORLD privilege?) …` | the agent lacks WORLD; only its own account's processes are chosen from |
+| `N processes match the process.* patterns; reporting the first 64` | narrow the patterns |
 
 The same counts go to the collector as `vmsotel.exports`,
 `vmsotel.queue.length`, `vmsotel.collection.duration` and

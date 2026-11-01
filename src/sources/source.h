@@ -14,9 +14,12 @@
 
 #include "model.h"
 #include "otlp_json.h"
+#include "procfilter.h"
 
-/* 1 on success, 0 with a reason in err. */
-int vo_source_open(char *err, size_t errcap);
+/* 1 on success, 0 with a reason in err. filter chooses the processes
+   to report one by one (phase 2); NULL or empty means none, and no
+   process scan at all. It must outlive the source. */
+int vo_source_open(const vo_proc_filter *filter, char *err, size_t errcap);
 
 /* Fills r with one reading taken at now_ns (Unix ns, UTC). 1 on
    success, 0 with a reason in err. */

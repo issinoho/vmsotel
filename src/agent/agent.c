@@ -159,6 +159,7 @@ typedef struct {
     int cpu_logged[VO_CPU_MODES];
     int skew_warned;
     int stopping;               /* the last attempt: nothing is retried */
+    int procs_warned;
 } agent;
 
 static void collect(agent *a)
@@ -180,6 +181,20 @@ static void collect(agent *a)
                        "reads as negative); not reported",
                        vo_cpu_mode_name(i));
             }
+    /* Phase 2: say once if processes are hidden or over the cap. */
+    if (!a->procs_warned && (a->raw.procs_hidden > 0 ||
+                             a->raw.procs_matched > a->raw.nprocs)) {
+        a->procs_warned = 1;
+        if (a->raw.procs_hidden > 0)
+            vo_log("%lu processes could not be read (no WORLD privilege?); "
+                   "only this account's are chosen from",
+                   (unsigned long) a->raw.procs_hidden);
+        if (a->raw.procs_matched > a->raw.nprocs)
+            vo_log("%lu processes match the process.* patterns; reporting "
+                   "the first %d", (unsigned long) a->raw.procs_matched,
+                   VO_MAX_PROCS);
+    }
+
     /* The precise clock: the UTC one is whole seconds on VMS, which
        made this always 0 there. */
     t1 = vo_time_precise_ns();
@@ -356,7 +371,7 @@ int main(int argc, char **argv)
         vo_log("cannot allocate %lu bytes for a payload", a.cfg.max_payload);
         return EXIT_FAILURE;
     }
-    if (!vo_source_open(err, sizeof err)) {
+    if (!vo_source_open(&a.cfg.procs, err, sizeof err)) {
         vo_log("not starting: %s", err);
         return EXIT_FAILURE;
     }
@@ -379,6 +394,12 @@ int main(int argc, char **argv)
 #endif
     if (stop_path != NULL)
         vo_log("to stop: create %s", stop_path);
+    if (vo_proc_filter_active(&a.cfg.procs))
+        vo_log("per-process metrics for %lu name and %lu user pattern%s; "
+               "other accounts' processes need WORLD",
+               (unsigned long) a.cfg.procs.nname,
+               (unsigned long) a.cfg.procs.nuser,
+               a.cfg.procs.nname + a.cfg.procs.nuser == 1 ? "" : "s");
 
     next_collect = next_send = last_now = vo_time_mono_ms();
     for (;;) {

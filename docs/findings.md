@@ -58,6 +58,8 @@ Collector output on docker-nuc not yet pasted for either machine.
 | 28 | `vmsotel.collection.duration` from $GETTIM | | yes | I64 collector: `Value: 0.009000`, where it was `0.000000` from time(). x86 not pasted |
 | 29 | Collector values against MONITOR SYSTEM | | yes | I64, 23:25–23:27: process count `cur 1` + `lef 16` + `hib 26` = 43 = MONITOR `Process Count 43.00`; page file free `4298702848` = 524744 × 8192; filesystem used + free = 71132960 × 512; `vmsotel.clock.skew -1`. Rates need two exports' counters; only the last export was pasted |
 | 30 | Phase 1 review fixes (20a48fd): negative CPU counter dropped at once; TYPE of the live log | yes | | x86, 2026-11-01 01:16:22: `cpu mode interrupt is unusable (it went backwards, or reads as negative); not reported` in the same second as `starting`, where 84540ea logged it a minute later after one export carried it. TYPE of VMSOTEL.LOG during the run worked, no RMS-E-FLK. Stop clean: `stopped: 3 collections, 3 sent, 0 failed attempts, 0 dropped`. The clock-step guard is not observable in a normal run; Linux test only |
+| 31 | `JPI$_CPUTIM` is 10 ms ticks (for phase 2) | **yes** | **yes** | From the probe_jpi runs already recorded: x86 `MARIADBD_3306 … 290331` against SHOW SYSTEM `00:48:23.31` (2903.31 s), `LTPHP_19000 … 7805290` against `21:40:52.90`; I64 `BESZEL_AGENT … 131236` against `00:21:52.36`, `LTPHP_19000 … 11` against `00:00:00.11`. Exact on all four. A longword: about 497 days of one process's CPU before it wraps |
+| 32 | Phase 2 per-process metrics on VMS | | | not yet run: `process.name` in VMSOTEL.CONF, then the self-test's process list beside SHOW SYSTEM, and the collector's per-process resources |
 
 ## Surprises
 

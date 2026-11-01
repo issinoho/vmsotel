@@ -15,14 +15,58 @@
 
 static vo_u64 opened_ns;
 static unsigned reads;
+static const vo_proc_filter *filter;
 
-int vo_source_open(char *err, size_t errcap)
+int vo_source_open(const vo_proc_filter *f, char *err, size_t errcap)
 {
     (void) err;
     (void) errcap;
     opened_ns = 0;
     reads = 0;
+    filter = f;
     return 1;
+}
+
+/*
+ * Processes, shaped like x86's SHOW SYSTEM. LTPHP_19001 ends after the
+ * second reading and LTPHP_19004 starts with the third, so a short run
+ * sees one process go and another come.
+ */
+static void processes(vo_raw *r, vo_u32 k)
+{
+    static const struct {
+        vo_u32 pid;
+        const char *name, *user;
+        vo_u32 cpu, pagelets;
+        int from, until;            /* readings it exists for */
+    } t[] = {
+        { 0x0000040B, "OPCOM", "SYSTEM", 1479, 3040, 0, 1000 },
+        { 0x00000438, "MARIADBD_3306", "MARIADB", 290331, 209664, 0, 1000 },
+        { 0x00000435, "LTPHP_19000", "LIGHTTPD", 7805290, 62464, 0, 1000 },
+        { 0x00000436, "LTPHP_19001", "LIGHTTPD", 1408017, 62336, 0, 2 },
+        { 0x00000500, "LTPHP_19004", "LIGHTTPD", 10, 30000, 2, 1000 },
+        { 0x0000068D, "BESZEL_AGENT", "BESZEL", 142210, 20976, 0, 1000 }
+    };
+    size_t i;
+
+    if (filter == NULL || !vo_proc_filter_active(filter))
+        return;
+    for (i = 0; i < sizeof t / sizeof t[0]; i++) {
+        vo_raw_proc *p;
+
+        if ((int) k < t[i].from || (int) k >= t[i].until ||
+            !vo_proc_filter_match(filter, t[i].name, t[i].user))
+            continue;
+        r->procs_matched++;
+        if (r->nprocs == VO_MAX_PROCS)
+            continue;
+        p = &r->procs[r->nprocs++];
+        p->pid = t[i].pid;
+        strcpy(p->name, t[i].name);
+        strcpy(p->user, t[i].user);
+        p->cpu_ticks = t[i].cpu + k * 37;
+        p->mem_bytes = (vo_u64) t[i].pagelets * 512;
+    }
 }
 
 static void disk(vo_raw_disk *d, const char *dev, const char *mnt,
@@ -99,6 +143,7 @@ int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
         disk(&r->disks[2], "FAKE$DKA300", "DISK$DUMP", 33554432, 7336282,
              158705019 + k * 64);
     }
+    processes(r, k);
     return 1;
 }
 

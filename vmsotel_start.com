@@ -13,9 +13,11 @@ $!     VMSOTEL.STOP        created by VMSOTEL_STOP.COM to ask it to stop
 $!     [.BUILD]            VMSOTEL_TLS.EXE, or VMSOTEL.EXE, from build_vms
 $!
 $! RUN/DETACHED of LOGINOUT, so that the process has DCL and can be
-$! given arguments, with NETMBX and TMPMBX and nothing else: the
-$! agent needs no privilege (docs/findings.md). It runs as the UIC that
-$! starts it -- SYSTEM, from SYSTARTUP_VMS.COM.
+$! given arguments, with NETMBX and TMPMBX: the system metrics need no
+$! privilege (docs/findings.md). WORLD is added only when VMSOTEL.CONF
+$! asks for per-process metrics (process.name or process.user), since
+$! without it a process scan sees only the agent's own account's. It
+$! runs as the UIC that starts it -- SYSTEM, from SYSTARTUP_VMS.COM.
 $!
 $! It does not restart itself. An agent that came back silently after
 $! failing would hide the failure; VMSOTEL.LOG says why it stopped.
@@ -67,6 +69,20 @@ $! once.
 $ if f$search(root + "VMSOTEL.STOP") .nes. "" then -
       delete/nolog 'root'VMSOTEL.STOP;*
 $!
+$! A line that begins "process." -- after any spaces, and not a
+$! comment -- asks for it. Read line by line rather than SEARCHed, so
+$! that a commented-out example does not grant WORLD.
+$ privs = "NOSAME,NETMBX,TMPMBX"
+$ open/read/error=privs_done cf 'root'VMSOTEL.CONF
+$ privs_loop:
+$   read/end_of_file=privs_close cf line
+$   line = f$edit(line, "TRIM,UPCASE")
+$   if f$extract(0, 8, line) .nes. "PROCESS." then goto privs_loop
+$   privs = privs + ",WORLD"
+$ privs_close:
+$ close cf
+$ privs_done:
+$!
 $! Quotas are stated rather than left to the PQL defaults: the queue is
 $! allocated at start (10 exports of 128 KB by default), and TCP and
 $! TLS want buffered I/O and buffer space. These are modest.
@@ -75,7 +91,7 @@ $ run/detached sys$system:loginout.exe -
       /input='root'VMSOTEL_RUN.COM -
       /output='root'VMSOTEL_RUN.LOG -
       /process_name=VMSOTEL -
-      /privileges=(nosame,netmbx,tmpmbx) -
+      /privileges=('privs') -
       /ast_limit=100 /buffer_limit=200000 /enqueue_limit=500 -
       /file_limit=100 /io_buffered=100 /io_direct=100 -
       /page_file=300000 /queue_limit=20 -
@@ -89,7 +105,7 @@ $ then
 $     say "vmsotel: RUN/DETACHED failed; nothing is running."
 $     exit st
 $ endif
-$ say "vmsotel started."
+$ say "vmsotel started, privileges ''privs'."
 $ say "  log   : TYPE ''root'VMSOTEL.LOG"
 $ say "  stop  : @''root'VMSOTEL_STOP"
 $ exit 1

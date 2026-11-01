@@ -42,6 +42,7 @@ enum {
 
 #define VO_MAX_DISKS   64
 #define VO_NAME_MAX    64      /* device and mount names, without NUL */
+#define VO_MAX_PROCS   64      /* chosen processes reported per export */
 
 typedef struct {
     char device[VO_NAME_MAX + 1];       /* e.g. "X86VMS$DKA0" */
@@ -50,6 +51,15 @@ typedef struct {
     vo_u64 free_bytes;
     vo_u32 ops;                         /* DVI$_OPCNT, a longword */
 } vo_raw_disk;
+
+/* One chosen process (phase 2). */
+typedef struct {
+    vo_u32 pid;
+    char name[16];                      /* JPI$_PRCNAM, at most 15 */
+    char user[13];                      /* JPI$_USERNAME, blanks trimmed */
+    vo_u32 cpu_ticks;                   /* JPI$_CPUTIM: 10 ms, a longword */
+    vo_u64 mem_bytes;                   /* PPGCNT + GPGCNT pagelets x 512 */
+} vo_raw_proc;
 
 /*
  * One reading. A source fills every field it can; *_present flags say
@@ -83,6 +93,12 @@ typedef struct {
 
     size_t ndisks;                      /* mounted disks to report */
     vo_raw_disk disks[VO_MAX_DISKS];
+
+    /* Phase 2: processes the filter chose, the first VO_MAX_PROCS. */
+    size_t nprocs;
+    vo_raw_proc procs[VO_MAX_PROCS];
+    size_t procs_matched;               /* chosen, before the cap */
+    size_t procs_hidden;                /* the scan was refused (NOPRIV) */
 } vo_raw;
 
 /* A 32-bit counter widened to 64 bits. */
@@ -112,6 +128,15 @@ typedef struct {
     int cpu_seen;
     vo_u64 cpu_last[VO_CPU_MODES];
     int cpu_dropped[VO_CPU_MODES];      /* went backwards once: never again */
+
+    /* Per-process CPU, widened by PID; a slot whose process was not in
+       the latest reading is freed, so processes that come and go do
+       not fill the table. */
+    struct {
+        int used;
+        vo_u32 pid;
+        vo_wide cpu;
+    } procs[VO_MAX_PROCS];
 } vo_state;
 
 typedef struct {
@@ -121,6 +146,7 @@ typedef struct {
     vo_count direct_ios, buffered_ios;
     int disk_ops_present[VO_MAX_DISKS]; /* 0 when the disk table is full */
     vo_count disk_ops[VO_MAX_DISKS];
+    vo_count proc_cpu[VO_MAX_PROCS];    /* ticks, widened, per raw->procs */
 } vo_snapshot;
 
 void vo_state_init(vo_state *st);

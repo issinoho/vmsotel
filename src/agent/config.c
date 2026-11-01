@@ -126,6 +126,21 @@ int vo_config_parse(vo_config *c, const char *text, char *err, size_t errcap)
             ok = number(val, vl, 1, 64, &n) && (c->queue_len = (unsigned) n, 1);
         else if (KEY("max_payload"))
             ok = number(val, vl, 4096, 4194304, &n) && (c->max_payload = n, 1);
+        else if (KEY("process.name") || KEY("process.user")) {
+            int is_name = KEY("process.name");
+            size_t *n = is_name ? &c->procs.nname : &c->procs.nuser;
+            char (*list)[VO_PATTERN_MAX + 1] = is_name ? c->procs.name
+                                                       : c->procs.user;
+
+            if (*n == VO_FILTER_MAX) {
+                snprintf(err, errcap, "line %d: more than %d %.*s patterns",
+                         line, VO_FILTER_MAX, (int) kl, key);
+                return line;
+            }
+            ok = vl > 0 && copy(list[*n], VO_PATTERN_MAX + 1, val, vl);
+            if (ok)
+                (*n)++;
+        }
         else if (kl > 9 && memcmp(key, "resource.", 9) == 0) {
             size_t i = c->nextra;
 

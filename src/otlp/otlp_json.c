@@ -438,7 +438,13 @@ static void agent_metrics(mw *m, const vo_agent_stats *a, vo_u64 now)
 
 /* ---- the request --------------------------------------------------- */
 
-static void resource(jw *w, const vo_resource *res)
+/*
+ * The resource: the host's attributes, and for a process's own resource
+ * (phase 2) that process's too. process.pid is an int in the
+ * conventions; the VMS PID also goes out in the hexadecimal SHOW SYSTEM
+ * prints, as openvms.process.id.
+ */
+static void resource(jw *w, const vo_resource *res, const vo_raw_proc *proc)
 {
     int first = 1;
     size_t i;
@@ -460,15 +466,64 @@ static void resource(jw *w, const vo_resource *res)
     }
     for (i = 0; i < res->nextra; i++)
         attr_str(w, &first, res->extra[i].key, res->extra[i].value);
+    if (proc != NULL) {
+        static const char hex[] = "0123456789ABCDEF";
+        char id[9];
+        int k;
+
+        for (k = 7; k >= 0; k--)
+            id[7 - k] = hex[(proc->pid >> (4 * k)) & 0xf];
+        id[8] = '\0';
+        sep(w, &first);
+        lit(w, "{\"key\":\"process.pid\",\"value\":{\"intValue\":");
+        qnum(w, proc->pid);
+        lit(w, "}}");
+        attr_str(w, &first, "openvms.process.id", id);
+        attr_str(w, &first, "openvms.process.name", proc->name);
+        attr_str(w, &first, "process.owner", proc->user);
+    }
     lit(w, "]}");
+}
+
+static void scope_open(jw *w, const vo_resource *res, const vo_raw_proc *proc)
+{
+    lit(w, "{");
+    resource(w, res, proc);
+    lit(w, ",\"scopeMetrics\":[{\"scope\":{\"name\":");
+    str(w, VO_SERVICE_NAME);
+    if (res->service_version != NULL) {
+        lit(w, ",\"version\":");
+        str(w, res->service_version);
+    }
+    lit(w, "},\"schemaUrl\":");
+    str(w, VO_SCHEMA_URL);
+    lit(w, ",\"metrics\":[");
+}
+
+/*
+ * A chosen process: its CPU time, in total -- VMS keeps no user and
+ * system split per process, so there is no cpu.mode -- and its
+ * physical memory. Both start when the agent first saw the process.
+ */
+static void process_metrics(mw *m, const vo_raw_proc *p, const vo_count *cpu,
+                            vo_u64 now)
+{
+    metric_begin(m, "process.cpu.time", "s", M_COUNTER);
+    point(m, NULL, NULL, NULL, NULL, cpu->start_ns, now, V_TICKS, cpu->value);
+    metric_end(m);
+    metric_begin(m, "process.memory.usage", "By", M_UPDOWN);
+    point(m, NULL, NULL, NULL, NULL, cpu->start_ns, now, V_INT, p->mem_bytes);
+    metric_end(m);
 }
 
 int vo_otlp_encode(const vo_resource *res, const vo_snapshot *snap,
                    const vo_agent_stats *stats,
                    char *buf, size_t cap, size_t *len)
 {
+    const vo_raw *r = snap->raw;
     jw w;
     mw m;
+    size_t i;
 
     w.buf = buf;
     w.cap = cap;
@@ -478,21 +533,21 @@ int vo_otlp_encode(const vo_resource *res, const vo_snapshot *snap,
     m.first_point = 1;
     m.kind = M_GAUGE;
 
-    lit(&w, "{\"resourceMetrics\":[{");
-    resource(&w, res);
-    lit(&w, ",\"scopeMetrics\":[{\"scope\":{\"name\":");
-    str(&w, VO_SERVICE_NAME);
-    if (res->service_version != NULL) {
-        lit(&w, ",\"version\":");
-        str(&w, res->service_version);
-    }
-    lit(&w, "},\"schemaUrl\":");
-    str(&w, VO_SCHEMA_URL);
-    lit(&w, ",\"metrics\":[");
+    lit(&w, "{\"resourceMetrics\":[");
+    scope_open(&w, res, NULL);
     metrics(&m, snap);
     if (stats != NULL)
-        agent_metrics(&m, stats, snap->raw->now_ns);
-    lit(&w, "]}]}]}");
+        agent_metrics(&m, stats, r->now_ns);
+    lit(&w, "]}]}");
+
+    for (i = 0; i < r->nprocs && i < VO_MAX_PROCS; i++) {
+        lit(&w, ",");
+        scope_open(&w, res, &r->procs[i]);
+        m.first_metric = 1;
+        process_metrics(&m, &r->procs[i], &snap->proc_cpu[i], r->now_ns);
+        lit(&w, "]}]}");
+    }
+    lit(&w, "]}");
 
     *len = w.len;
     return w.len <= cap ? VO_OK : VO_ESPACE;

@@ -5,6 +5,7 @@
 
 #include "check.h"
 #include "fixture.h"
+#include "procfilter.h"
 
 #define T0 1000000000000ULL
 #define T1 (T0 + 60000000000ULL)
@@ -243,6 +244,90 @@ static void test_cpu_backwards(void)
     CHECK(!st.cpu_dropped[VO_CPU_COMPAT]);
 }
 
+static void test_wildcards(void)
+{
+    vo_proc_filter f;
+
+    CHECK(vo_wildcard_match("LTPHP_*", "LTPHP_19000"));
+    CHECK(vo_wildcard_match("ltphp_*", "LTPHP_19000"));      /* case-blind */
+    CHECK(vo_wildcard_match("*", ""));
+    CHECK(vo_wildcard_match("*", "ANYTHING"));
+    CHECK(vo_wildcard_match("OPCOM", "OPCOM"));
+    CHECK(!vo_wildcard_match("OPCOM", "OPCOM2"));
+    CHECK(!vo_wildcard_match("OPCOM", "OPCO"));
+    CHECK(vo_wildcard_match("LTPHP_1900%", "LTPHP_19003"));
+    CHECK(!vo_wildcard_match("LTPHP_1900%", "LTPHP_1900"));   /* % is one */
+    CHECK(vo_wildcard_match("*_19*", "LTPHP_19000"));
+    CHECK(vo_wildcard_match("*SERVER", "SECURITY_SERVER"));
+    CHECK(!vo_wildcard_match("*SERVER", "SERVER_X"));
+    CHECK(vo_wildcard_match("A*B*C", "AxxBxxBxxC"));          /* backtracks */
+    CHECK(!vo_wildcard_match("A*B*C", "AxxBxxCxxB"));
+    CHECK(vo_wildcard_match("%%%", "abc"));
+    CHECK(!vo_wildcard_match("%%%", "ab"));
+    CHECK(!vo_wildcard_match("", "x"));
+
+    memset(&f, 0, sizeof f);
+    CHECK(!vo_proc_filter_active(&f));
+    CHECK(!vo_proc_filter_match(&f, "OPCOM", "SYSTEM"));    /* none: none */
+    strcpy(f.name[f.nname++], "MARIADBD*");
+    strcpy(f.user[f.nuser++], "LIGHTTPD");
+    CHECK(vo_proc_filter_active(&f));
+    CHECK(vo_proc_filter_match(&f, "MARIADBD_3306", "MARIADB"));
+    CHECK(vo_proc_filter_match(&f, "VMSLIGHTTPD", "LIGHTTPD"));  /* by user */
+    CHECK(!vo_proc_filter_match(&f, "OPCOM", "SYSTEM"));
+}
+
+static void test_procs(void)
+{
+    static vo_state st;
+    static vo_raw r;
+    static vo_snapshot s;
+    int i;
+
+    fixture_minimal(&r);
+    vo_state_init(&st);
+    r.nprocs = 2;
+    r.procs[0].pid = 0x438;
+    r.procs[0].cpu_ticks = TOP;                     /* about to wrap */
+    r.procs[1].pid = 0x435;
+    r.procs[1].cpu_ticks = 100;
+    r.now_ns = T0;
+    vo_model_update(&st, &r, &s);
+    CHECK_U64(s.proc_cpu[0].value, TOP);
+    CHECK_U64(s.proc_cpu[0].start_ns, T0);
+
+    /* Order changes, 0x438 wraps, 0x435 is gone, 0x500 is new. */
+    r.procs[0].pid = 0x500;
+    r.procs[0].cpu_ticks = 7;
+    r.procs[1].pid = 0x438;
+    r.procs[1].cpu_ticks = 4;
+    r.now_ns = T1;
+    vo_model_update(&st, &r, &s);
+    CHECK_U64(s.proc_cpu[1].value, TWO32 + 4);      /* followed by PID */
+    CHECK_U64(s.proc_cpu[1].start_ns, T0);
+    CHECK_U64(s.proc_cpu[0].value, 7);
+    CHECK_U64(s.proc_cpu[0].start_ns, T1);          /* first seen now */
+
+    /* A PID that comes back after going is a new process: new start. */
+    r.procs[0].pid = 0x435;
+    r.procs[0].cpu_ticks = 5;
+    r.now_ns = T2;
+    vo_model_update(&st, &r, &s);
+    CHECK_U64(s.proc_cpu[0].start_ns, T2);
+    CHECK_U64(s.proc_cpu[0].value, 5);
+
+    /* Processes that come and go never fill the table: 3 x 64 PIDs. */
+    for (i = 0; i < 3 * VO_MAX_PROCS; i++) {
+        r.nprocs = 1;
+        r.procs[0].pid = 0x1000 + (vo_u32) i;
+        r.procs[0].cpu_ticks = (vo_u32) i;
+        r.now_ns = T3 + (vo_u64) i;
+        vo_model_update(&st, &r, &s);
+    }
+    CHECK_U64(s.proc_cpu[0].value, 3 * VO_MAX_PROCS - 1);
+    CHECK_U64(s.proc_cpu[0].start_ns, T3 + 3 * VO_MAX_PROCS - 1);
+}
+
 static void test_names(void)
 {
     CHECK(strcmp(vo_cpu_mode_name(VO_CPU_EXEC), "executive") == 0);
@@ -267,6 +352,8 @@ int main(void)
     test_disks_by_name();
     test_disk_table_full();
     test_cpu_backwards();
+    test_wildcards();
+    test_procs();
     test_names();
     return check_summary("test_model");
 }

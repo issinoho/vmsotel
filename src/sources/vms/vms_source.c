@@ -45,6 +45,7 @@
 #include <dvidef.h>
 #include <dvsdef.h>
 #include <efndef.h>
+#include <jpidef.h>
 #include <lnmdef.h>
 #include <rmidef.h>
 #include <ssdef.h>
@@ -300,12 +301,15 @@ static int read_boot(long long tdf, char *err, size_t errcap)
     return 1;
 }
 
-int vo_source_open(char *err, size_t errcap)
+static const vo_proc_filter *filter;
+
+int vo_source_open(const vo_proc_filter *f, char *err, size_t errcap)
 {
     char arch[32];
     vo_u64 v;
     unsigned int st;
 
+    filter = f;
 #ifdef __VMS
     if (sizeof(ile3) != 12) {
         snprintf(err, errcap, "item lists need 32-bit pointers; "
@@ -397,6 +401,90 @@ static void tidy_device(const char *in, char *out, size_t cap)
         n = cap - 1;
     memcpy(out, in, n);
     out[n] = '\0';
+}
+
+static void copy_trim(char *out, size_t cap, const unsigned char *b,
+                      unsigned short len)
+{
+    if (len >= cap)
+        len = (unsigned short) (cap - 1);
+    while (len > 0 && (b[len - 1] == ' ' || b[len - 1] == '\0'))
+        len--;
+    memcpy(out, b, len);
+    out[len] = '\0';
+}
+
+/*
+ * The chosen processes (phase 2), by a wildcard $GETJPIW scan with one
+ * item list per process, as probe_jpi ran it on both machines. Those
+ * items come from the process's control block, not its own context, so
+ * no AST is delivered to it; JPI$_IMAGNAME would need one and is left
+ * out. Without WORLD only this account's processes are visible: the
+ * others come back SS$_NOPRIV and are counted, for the agent to log.
+ */
+static void read_procs(vo_raw *r)
+{
+    unsigned char b_pid[4], b_name[16], b_user[12], b_cpu[4], b_pp[4], b_gp[4];
+    unsigned short l_pid, l_name, l_user, l_cpu, l_pp, l_gp;
+    unsigned int pid = 0xFFFFFFFFu;     /* -1: start a wildcard scan */
+    unsigned int errors = 0;
+    ile3 ile[7];
+
+    if (filter == NULL || !vo_proc_filter_active(filter))
+        return;
+    memset(ile, 0, sizeof ile);
+    ile[0].len = 4;  ile[0].code = JPI$_PID;      ile[0].buf = b_pid;  ile[0].retlen = &l_pid;
+    ile[1].len = 15; ile[1].code = JPI$_PRCNAM;   ile[1].buf = b_name; ile[1].retlen = &l_name;
+    ile[2].len = 12; ile[2].code = JPI$_USERNAME; ile[2].buf = b_user; ile[2].retlen = &l_user;
+    ile[3].len = 4;  ile[3].code = JPI$_CPUTIM;   ile[3].buf = b_cpu;  ile[3].retlen = &l_cpu;
+    ile[4].len = 4;  ile[4].code = JPI$_PPGCNT;   ile[4].buf = b_pp;   ile[4].retlen = &l_pp;
+    ile[5].len = 4;  ile[5].code = JPI$_GPGCNT;   ile[5].buf = b_gp;   ile[5].retlen = &l_gp;
+
+    for (;;) {
+        unsigned short iosb[4] = { 0, 0, 0, 0 };
+        unsigned int st;
+        char name[16], user[13];
+        vo_raw_proc *p;
+
+        memset(b_name, 0, sizeof b_name);
+        memset(b_user, 0, sizeof b_user);
+        l_name = l_user = 0;
+        st = sys$getjpiw(EFN$C_ENF, &pid, 0, (void *) ile, (void *) iosb, 0, 0);
+        if ((st & 1) && !(iosb[0] & 1))
+            st = iosb[0];
+        if (st == SS$_NOMOREPROC)
+            break;
+        if (st == SS$_NOPRIV) {
+            r->procs_hidden++;
+            continue;
+        }
+        if (!(st & 1)) {                /* gone mid-scan, suspended, ... */
+            if (++errors > 100)
+                break;
+            continue;
+        }
+        copy_trim(name, sizeof name, b_name, l_name);
+        copy_trim(user, sizeof user, b_user, l_user);
+        if (!vo_proc_filter_match(filter, name, user))
+            continue;
+        r->procs_matched++;
+        if (r->nprocs == VO_MAX_PROCS)
+            continue;
+        p = &r->procs[r->nprocs++];
+        p->pid = (vo_u32) b_pid[0] | (vo_u32) b_pid[1] << 8 |
+                 (vo_u32) b_pid[2] << 16 | (vo_u32) b_pid[3] << 24;
+        strcpy(p->name, name);
+        strcpy(p->user, user);
+        p->cpu_ticks = (vo_u32) b_cpu[0] | (vo_u32) b_cpu[1] << 8 |
+                       (vo_u32) b_cpu[2] << 16 | (vo_u32) b_cpu[3] << 24;
+        /* Pagelets of 512 bytes, matched with SHOW SYSTEM's pages on
+           both machines (findings 11). */
+        p->mem_bytes = ((vo_u64) ((vo_u32) b_pp[0] | (vo_u32) b_pp[1] << 8 |
+                                  (vo_u32) b_pp[2] << 16 | (vo_u32) b_pp[3] << 24) +
+                        (vo_u64) ((vo_u32) b_gp[0] | (vo_u32) b_gp[1] << 8 |
+                                  (vo_u32) b_gp[2] << 16 | (vo_u32) b_gp[3] << 24))
+                       * 512ULL;
+    }
 }
 
 /* Mounted disks, less shadow-set members and the memory disk. */
@@ -519,6 +607,7 @@ int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
     }
 
     read_disks(r);
+    read_procs(r);
     return 1;
 
 fail:
@@ -543,7 +632,12 @@ int vo_source_selftest(void)
     size_t i;
     int ok = 1;
 
-    if (!vo_source_open(err, sizeof err)) {
+    static vo_proc_filter all;
+
+    /* Every process, so the scan can be checked against SHOW SYSTEM. */
+    all.nname = 1;
+    strcpy(all.name[0], "*");
+    if (!vo_source_open(&all, err, sizeof err)) {
         printf("FAIL  open: %s\n", err);
         return 1;
     }
@@ -652,6 +746,21 @@ int vo_source_selftest(void)
         printf("  none\n");
         ok = 0;
     }
+
+    printf("\nProcesses: %lu visible, %lu refused (NOPRIV)       "
+           "SHOW SYSTEM\n", (unsigned long) b.procs_matched,
+           (unsigned long) b.procs_hidden);
+    printf("  %-8s %-15s %-12s %14s %10s\n", "PID", "name", "user",
+           "CPU (s)", "pages");
+    for (i = 0; i < b.nprocs && i < 12; i++)
+        printf("  %08X %-15s %-12s %11u.%02u %10llu\n", b.procs[i].pid,
+               b.procs[i].name, b.procs[i].user, b.procs[i].cpu_ticks / 100,
+               b.procs[i].cpu_ticks % 100,
+               b.procs[i].mem_bytes / page_size);
+    if (b.nprocs > 12)
+        printf("  ... and %lu more\n", (unsigned long) (b.nprocs - 12));
+    if (b.nprocs == 0)
+        ok = 0;
 
     printf("\n%s\n", ok ? "self-test read everything" :
                           "SELF-TEST INCOMPLETE: see above");

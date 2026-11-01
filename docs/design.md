@@ -244,6 +244,35 @@ in phase 2, filtered by name. A wildcard scan of every process every
 interval, with a series per PID, is the cardinality mistake that gets
 an agent switched off.
 
+### Phase 2: chosen processes
+
+As built (`src/model/procfilter.c`, `read_procs` in the VMS source):
+
+- **Choosing.** `process.name` and `process.user` patterns in the
+  configuration, VMS wildcards (`*`, `%`), case ignored, up to 16 of
+  each; a process is chosen when any matches. None, the default, means
+  no process scan at all. At most 64 are reported; more is logged once.
+- **Reading.** One wildcard `$GETJPIW` scan per collection with one
+  item list -- `PID`, `PRCNAM`, `USERNAME`, `CPUTIM`, `PPGCNT`,
+  `GPGCNT` -- exactly as probe_jpi ran it on both machines. All come
+  from the process's control block, so no AST goes to the process.
+  `JPI$_IMAGNAME` would need one, has not been probed for other
+  processes, and is left out, so there is no
+  `process.executable.name`.
+- **Privilege.** Other accounts' processes need WORLD (findings 12);
+  without it they come back `SS$_NOPRIV`, are counted, and the agent
+  logs the count once. `VMSOTEL_START.COM` grants WORLD only when a
+  configuration line begins `process.`.
+- **Metrics.** Each chosen process is its own resource, as the
+  collector's hostmetrics receiver sends them: the host's attributes
+  plus `process.pid` (an int), `openvms.process.id` (the hexadecimal PID
+  SHOW SYSTEM prints), `openvms.process.name` and `process.owner`.
+  `process.cpu.time` is `JPI$_CPUTIM`, 10 ms ticks (findings 31), total
+  only: VMS keeps no user/system split per process, so there is no
+  `cpu.mode`. It is a longword, widened by PID like the other counters,
+  starting when the agent first saw the process. `process.memory.usage`
+  is `PPGCNT + GPGCNT` pagelets × 512 (findings 11).
+
 ### CPU modes
 
 | VMS mode | `cpu.mode` |

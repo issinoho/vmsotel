@@ -11,6 +11,8 @@
  *     cafile   = SYS$MANAGER:VMSOTEL_CA.PEM
  *     interval = 60
  *     resource.deployment.environment = lab
+ *     process.name = MARIADBD*
+ *     process.user = LIGHTTPD
  */
 
 #ifndef VO_CONFIG_H
@@ -19,6 +21,7 @@
 #include <stddef.h>
 
 #include "otlp_json.h"
+#include "procfilter.h"
 
 #define VO_CONFIG_MAX_EXTRA 16
 #define VO_CONFIG_STR       256
@@ -38,6 +41,8 @@ typedef struct {
     vo_attr extra[VO_CONFIG_MAX_EXTRA];
     char extra_key[VO_CONFIG_MAX_EXTRA][VO_CONFIG_STR];
     char extra_value[VO_CONFIG_MAX_EXTRA][VO_CONFIG_STR];
+
+    vo_proc_filter procs;       /* process.name, process.user */
 } vo_config;
 
 void vo_config_defaults(vo_config *c);

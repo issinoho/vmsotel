@@ -61,6 +61,45 @@ static vo_wide *disk_slot(vo_state *st, const char *device)
     return &st->disks[free_slot].ops;
 }
 
+/* Widens each chosen process's CPU time by PID. Slots are matched
+   first, then freed if their process is gone, then claimed for new
+   ones -- so a full table only happens with more than VO_MAX_PROCS
+   processes at once, which the source has already capped. */
+static void update_procs(vo_state *st, const vo_raw *raw, vo_snapshot *snap)
+{
+    int slot_of[VO_MAX_PROCS], seen[VO_MAX_PROCS];
+    size_t i, k;
+
+    for (k = 0; k < VO_MAX_PROCS; k++)
+        seen[k] = 0;
+    for (i = 0; i < raw->nprocs && i < VO_MAX_PROCS; i++) {
+        slot_of[i] = -1;
+        for (k = 0; k < VO_MAX_PROCS; k++)
+            if (st->procs[k].used && st->procs[k].pid == raw->procs[i].pid) {
+                slot_of[i] = (int) k;
+                seen[k] = 1;
+                break;
+            }
+    }
+    for (k = 0; k < VO_MAX_PROCS; k++)
+        if (st->procs[k].used && !seen[k])
+            st->procs[k].used = 0;
+    for (i = 0; i < raw->nprocs && i < VO_MAX_PROCS; i++) {
+        if (slot_of[i] < 0)
+            for (k = 0; k < VO_MAX_PROCS; k++)
+                if (!st->procs[k].used) {
+                    st->procs[k].used = 1;
+                    st->procs[k].pid = raw->procs[i].pid;
+                    memset(&st->procs[k].cpu, 0, sizeof st->procs[k].cpu);
+                    slot_of[i] = (int) k;
+                    break;
+                }
+        if (slot_of[i] >= 0)
+            widen(&st->procs[slot_of[i]].cpu, raw->procs[i].cpu_ticks,
+                  raw->now_ns, &snap->proc_cpu[i]);
+    }
+}
+
 int vo_model_update(vo_state *st, const vo_raw *raw, vo_snapshot *snap)
 {
     size_t i;
@@ -113,6 +152,7 @@ int vo_model_update(vo_state *st, const vo_raw *raw, vo_snapshot *snap)
             snap->disk_ops_present[i] = 1;
         }
     }
+    update_procs(st, raw, snap);
     return newly_dropped;
 }
 

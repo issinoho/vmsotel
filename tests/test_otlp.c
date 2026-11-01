@@ -256,6 +256,40 @@ static void test_shape(void)
     CHECK_CONTAINS(out, "\"asInt\":\"41041274\"}");
 }
 
+static void test_processes(void)
+{
+    vo_raw r;
+    vo_resource res;
+
+    fixture_full(&r);
+    fixture_resource(&res);
+    encode(&r, &res);
+    /* A resource of its own per process: the host's attributes, then
+       the process's, with process.pid an int as the conventions say. */
+    CHECK_CONTAINS(out, "{\"key\":\"process.pid\",\"value\":"
+                        "{\"intValue\":\"1080\"}},{\"key\":"
+                        "\"openvms.process.id\",\"value\":{\"stringValue\":"
+                        "\"00000438\"}},{\"key\":\"openvms.process.name\","
+                        "\"value\":{\"stringValue\":\"MARIADBD_3306\"}},"
+                        "{\"key\":\"process.owner\",\"value\":"
+                        "{\"stringValue\":\"MARIADB\"}}]}");
+    CHECK_CONTAINS(out, "\"name\":\"process.cpu.time\",\"unit\":\"s\","
+                        "\"sum\":{\"dataPoints\":[{\"startTimeUnixNano\":"
+                        "\"1793477869000000000\",\"timeUnixNano\":"
+                        "\"1793477869000000000\",\"asDouble\":2903.31}]");
+    CHECK_CONTAINS(out, "\"name\":\"process.memory.usage\",\"unit\":\"By\","
+                        "\"sum\":{\"dataPoints\":[{\"startTimeUnixNano\":"
+                        "\"1793477869000000000\",\"timeUnixNano\":"
+                        "\"1793477869000000000\",\"asInt\":\"107347968\"}]");
+    CHECK_CONTAINS(out, "\"stringValue\":\"LTPHP_19000\"");
+    /* The host's own metrics stay out of the process resources. */
+    CHECK(strstr(strstr(out, "process.pid"), "system.cpu.time") == NULL);
+
+    r.nprocs = 0;
+    encode(&r, &res);
+    CHECK(strstr(out, "process.pid") == NULL);
+}
+
 static void test_agent_stats(void)
 {
     vo_raw r;
@@ -323,5 +357,6 @@ int main(int argc, char **argv)
     test_optional_parts();
     test_shape();
     test_agent_stats();
+    test_processes();
     return check_summary("test_otlp");
 }

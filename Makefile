@@ -37,8 +37,9 @@ AGENT_CFLAGS = $(STRICT) $(AGENT_INC)
 AGENT_HDRS = $(wildcard src/*/*.h) $(wildcard tests/*.h)
 
 # Objects that do not change with TLS, and the two that do.
-CORE_OBJ = $(B)/model.o $(B)/otlp_json.o $(B)/platform_posix.o \
-           $(B)/queue.o $(B)/config.o $(B)/fake_source.o
+CORE_OBJ = $(B)/model.o $(B)/procfilter.o $(B)/otlp_json.o \
+           $(B)/platform_posix.o $(B)/queue.o $(B)/config.o \
+           $(B)/fake_source.o
 AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
 
 # The VMS source, built here against stub/ so its logic runs before it
@@ -72,6 +73,8 @@ $(B)/probe_otlp_tls: probes/probe_otlp.c | $(B)
 	$(CC) $(STRICT) -DWITH_TLS -o $@ $< -lssl -lcrypto
 
 $(B)/model.o: src/model/model.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/procfilter.o: src/model/procfilter.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 $(B)/otlp_json.o: src/otlp/otlp_json.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
@@ -115,14 +118,14 @@ $(B)/clockjump.so: tests/clockjump.c | $(B)
 $(B)/fixture.o: tests/fixture.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 
-$(B)/test_model: tests/test_model.c $(B)/fixture.o $(B)/model.o
-	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o
+$(B)/test_model: tests/test_model.c $(B)/fixture.o $(B)/model.o $(B)/procfilter.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/procfilter.o
 
 $(B)/test_otlp: tests/test_otlp.c $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o
 	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o
 
-$(B)/test_transport: tests/test_transport.c $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o
-	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o
+$(B)/test_transport: tests/test_transport.c $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o $(B)/procfilter.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o $(B)/procfilter.o
 
 # The generated tables are committed; regenerate them when the lists
 # in gen_items.py change.

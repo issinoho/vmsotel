@@ -344,7 +344,23 @@ def agent_selftest(plain, tls, vmsstub=None):
               b'"asInt":"4294967296"' in sent and
               b'"free"}}],"startTimeUnixNano"' in sent and
               b'"asInt":"1414660096"' in sent and
-              b"system.cpu.time" in sent and b'"lef"' in sent, out)
+              b"system.cpu.time" in sent and b'"lef"' in sent and
+              b"process.pid" not in sent, out)
+
+        # Phase 2 through the VMS source: the stub's OPCOM is chosen;
+        # its AUDIT_SERVER is NOPRIV, which the agent logs once.
+        reset()
+        rc, out = run(vmsstub, conf(port, "process.name = opcom\n"
+                                          "process.user = AUDIT*\n"), 2)
+        sent = b"".join(s[3] for s in State.seen)
+        check("VMS source (stub), process.name = opcom: one process "
+              "resource, the NOPRIV one logged once",
+              rc == 0 and len(accepted()) == 2 and
+              sent.count(b'"openvms.process.name","value":{"stringValue":'
+                         b'"OPCOM"}') == 2 and
+              b"process.cpu.time" in sent and b"AUDIT_SERVER" not in sent
+              and out.count("could not be read (no WORLD privilege?)") == 1,
+              out)
 
     # The clock stepping back an hour mid-run (tests/clockjump.c): what
     # VMS's local-time clock does when summer time ends. Without the

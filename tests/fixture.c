@@ -63,6 +63,20 @@ void fixture_full(vo_raw *r)
          33713);
     disk(&r->disks[2], "X86VMS$DKA300", "DISK$DUMP", 33554432, 7336282,
          158705019);
+
+    /* Two chosen processes, from x86's SHOW SYSTEM. */
+    r->nprocs = 2;
+    r->procs_matched = 2;
+    r->procs[0].pid = 0x00000438;
+    strcpy(r->procs[0].name, "MARIADBD_3306");
+    strcpy(r->procs[0].user, "MARIADB");
+    r->procs[0].cpu_ticks = 290331;
+    r->procs[0].mem_bytes = 209664ULL * 512;
+    r->procs[1].pid = 0x00000435;
+    strcpy(r->procs[1].name, "LTPHP_19000");
+    strcpy(r->procs[1].user, "LIGHTTPD");
+    r->procs[1].cpu_ticks = 7805290;
+    r->procs[1].mem_bytes = 62464ULL * 512;
 }
 
 void fixture_minimal(vo_raw *r)

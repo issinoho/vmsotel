@@ -16,9 +16,13 @@ here against `stub/` as `build/vmsotel_vmsstub`), the agent loop, and
 On VMS: the self-test matched SHOW and MONITOR, exports reached the
 collector intact, and the agent ran detached and stopped cleanly. Not
 yet run there: `descrip.mms`, a start from SYSTARTUP_VMS.COM, TLS (needs
-`collector.crt` on VMS), and the two fixes from the phase 1 review (no
-stall when the clock steps back; no negative CPU counter in the first
-export). `make check` also checks that the three build files agree.
+`collector.crt` on VMS), and the clock-step fix from the phase 1
+review. `make check` also checks that the three build files agree.
+
+Phase 2, per-process metrics for processes chosen by name or user
+(`process.name`, `process.user`; WORLD), is written and tested on
+Linux, not yet run on VMS (findings 32). It rests on findings 11, 12
+and 31; nothing new needed probing.
 
 ## Where it lives
 
