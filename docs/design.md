@@ -405,14 +405,14 @@ and the numbers in MONITOR are the other end.
    needs WORLD.
 3. **Logs** — OPCOM messages and the audit journal as OTLP logs
    (`/v1/logs`). Needs its own probes, now written (`probe_logs`,
-   `build_probes LOGS`, findings 33–37). They try the least invasive
+   `build_probes LOGS`, findings 33–38). They try the least invasive
    route first: reading the operator log and the audit journal as
    files, shared, while OPCOM and the audit server write them. The
    alternatives the first draft named -- a mailbox enabled as an
    operator for OPCOM, and the audit server's listener mailbox -- need
    OPER, SECURITY and a change to the system's audit configuration
    (`SET AUDIT/LISTENER`), so they are held back unless the files
-   cannot do. *(probe: findings 33–37)*
+   cannot do. *(probe: findings 35, 37, 38)*
 4. **Application instrumentation** — a small C library VMS applications
    link to emit their own metrics and spans through the same transport.
 

@@ -375,6 +375,9 @@ int sys$getdviw(unsigned int efn, unsigned short chan, void *devnam,
  * already at EOF, as a tail would see them -- which VMS does is what
  * probe_logs asks. STUB_NO_TAIL=1 makes a stream that reached EOF stay
  * there until reopened, so probe_logs's other branch runs too.
+ * A record's RFA is its byte offset; $GET with RAB$C_RFA seeks there.
+ * STUB_BAD_RFA=1 makes that land one record late, so probe_logs's
+ * check that it found the same record can be seen to fail.
  */
 struct FAB cc$rms_fab;
 struct RAB cc$rms_rab;
@@ -467,7 +470,20 @@ int sys$get(void *rabp)
     char line[1024];
     size_t n;
     int lo, hi;
+    long at;
 
+    if (rab->rab$b_rac == RAB$C_RFA) {
+        at = (long) rab->rab$w_rfa[0] | (long) rab->rab$w_rfa[1] << 16;
+        clearerr(fp);
+        if (fseek(fp, at, SEEK_SET) != 0)
+            return RMS$_RNF;
+        if (getenv("STUB_BAD_RFA")) {
+            rab->rab$b_rac = RAB$C_SEQ;
+            sys$get(rab);
+            rab->rab$b_rac = RAB$C_RFA;
+        }
+    }
+    at = ftell(fp);
     if (rab->rab$l_fab->stub_kind == 1) {
         if (rab->rab$l_fab->stub_kind == 1 && getenv("STUB_NO_TAIL") &&
             feof(fp))
@@ -494,6 +510,9 @@ int sys$get(void *rabp)
     memcpy(rab->rab$l_ubf, line, n);
     rab->rab$w_rsz = (unsigned short) n;
     rab->rab$l_rbf = rab->rab$l_ubf;
+    rab->rab$w_rfa[0] = (unsigned short) (at & 0xffff);
+    rab->rab$w_rfa[1] = (unsigned short) (at >> 16 & 0xffff);
+    rab->rab$w_rfa[2] = 0;
     return RMS$_NORMAL;
 }
 

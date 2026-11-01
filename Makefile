@@ -149,7 +149,12 @@ check: all
 	for p in $(VMS_PROBES); do echo "== $$p"; $$p || exit 1; done
 	rm -f $(B)/stub_operator.log
 	$(B)/probe_logs --request | grep -q 'tailing works'
-	STUB_NO_TAIL=1 $(B)/probe_logs --request | grep -q 'tail by reopening'
+	STUB_NO_TAIL=1 $(B)/probe_logs --request > $(B)/probe_logs.out
+	grep -q 'tail by reopening' $(B)/probe_logs.out
+	grep -q 'ok    reopened at the last record read, by its RFA' $(B)/probe_logs.out
+	STUB_NO_TAIL=1 STUB_BAD_RFA=1 $(B)/probe_logs --request > $(B)/probe_logs.out || true
+	grep -q 'FAIL  go back to the last record by its RFA' $(B)/probe_logs.out
+	grep -q 'tail by reopening' $(B)/probe_logs.out
 	rm -f $(B)/stub_audit.journal
 	! STUB_BAD_AUDIT=1 $(B)/probe_logs | grep -q 'packets add up'
 	rm -f $(B)/stub_audit.journal

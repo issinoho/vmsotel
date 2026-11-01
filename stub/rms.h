@@ -25,6 +25,8 @@ struct RAB {
     unsigned short rab$w_rsz;
     char *rab$l_rbf;
     unsigned int rab$l_rop;
+    unsigned char rab$b_rac;
+    unsigned short rab$w_rfa[3];
 };
 
 extern struct FAB cc$rms_fab;
@@ -41,6 +43,8 @@ extern struct RAB cc$rms_rab;
 #define FAB$C_STM   4
 #define FAB$C_STMLF 5
 #define FAB$C_STMCR 6
+#define RAB$C_SEQ   0
+#define RAB$C_RFA   2
 #define RAB$M_NLK   0x00200000
 #define RAB$M_RRL   0x00100000
 

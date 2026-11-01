@@ -16,6 +16,9 @@
  *        (it appears on operator consoles), and the probe watches for
  *        it. Does a new record appear on the stream already open -- a
  *        tail -- or only after closing and reopening the file?
+ *     4. On reopening, can it go straight back to the last record read,
+ *        by that record's RFA, instead of reading from the start? I64's
+ *        log holds 4.5 million records, too many to skip each interval.
  *
  *   Audit (SYS$MANAGER:SECURITY.AUDIT$JOURNAL)
  *     4. Can it be opened for reading, with what privilege.
@@ -45,6 +48,7 @@ typedef struct {
     struct RAB rab;
     char name[256];
     int open;
+    unsigned short last_rfa[3];     /* of the last record read */
 } rfile;
 
 static unsigned char rec[REC_MAX];
@@ -100,7 +104,30 @@ static unsigned int r_open(rfile *f, const char *name)
 
 static unsigned int r_get(rfile *f)
 {
-    return sys$get((void *) &f->rab);
+    unsigned int st = sys$get((void *) &f->rab);
+
+    if (st & 1)
+        memcpy(f->last_rfa, f->rab.rab$w_rfa, sizeof f->last_rfa);
+    return st;
+}
+
+/*
+ * Goes back to the record whose RFA was saved and reads it again, then
+ * returns to sequential access, so the next r_get is the record after
+ * it. Returns 1 when the record read equals `want`.
+ */
+static int r_get_at(rfile *f, const unsigned short rfa[3],
+                    const unsigned char *want, unsigned short wantlen,
+                    unsigned int *st)
+{
+    memcpy(f->rab.rab$w_rfa, rfa, sizeof f->rab.rab$w_rfa);
+    f->rab.rab$b_rac = RAB$C_RFA;
+    *st = sys$get((void *) &f->rab);
+    f->rab.rab$b_rac = RAB$C_SEQ;
+    if (!(*st & 1))
+        return 0;
+    memcpy(f->last_rfa, f->rab.rab$w_rfa, sizeof f->last_rfa);
+    return f->rab.rab$w_rsz == wantlen && memcmp(rec, want, wantlen) == 0;
 }
 
 static void r_close(rfile *f)
@@ -212,7 +239,11 @@ static void opcom(const char *name, int request)
     unsigned int st, end;
     unsigned long n, more, i;
     char marker[80];
-    int seen = 0;
+    int seen = 0, by_rfa;
+    time_t t0;
+    unsigned short rfa[3];
+    unsigned char last[REC_MAX];
+    unsigned short lastlen;
 
     printf("\nOPCOM: %s\n", name);
     st = r_open(&f, name);
@@ -226,8 +257,10 @@ static void opcom(const char *name, int request)
            rfm_name(f.fab.fab$b_rfm), f.fab.fab$b_rfm,
            (unsigned) f.fab.fab$w_mrs, (unsigned) f.fab.fab$b_rat);
 
+    t0 = time(NULL);
     n = read_all(&f, 0, NULL, NULL, &end);
     printf("  %lu records, then %s\n", n, probe_msg(end));
+    printf("  reading them all took %ld s\n", (long) (time(NULL) - t0));
     printf("  the last %d:\n", n < KEEP ? (int) n : KEEP);
     print_kept(n, 0);
     if (end != RMS$_EOF)
@@ -251,7 +284,9 @@ static void opcom(const char *name, int request)
     for (i = 0; i < 12 && !seen; i++) {
         unsigned long got, k;
 
-        sleep(5);
+#ifdef __VMS
+        sleep(5);       /* the stub's log changes only when told to */
+#endif
         got = read_all(&f, n + more, NULL, NULL, &end);
         for (k = n + more; k < n + more + got; k++)
             if (contains(kept[k % KEEP], kept_len[k % KEEP], marker))
@@ -268,17 +303,55 @@ static void opcom(const char *name, int request)
         return;
     }
     printf("  marker not seen on the open stream\n");
+    memcpy(rfa, f.last_rfa, sizeof rfa);
+    lastlen = 0;
+    if (n + more > 0) {
+        lastlen = kept_len[(n + more - 1) % KEEP];
+        memcpy(last, kept[(n + more - 1) % KEEP], lastlen);
+    }
     r_close(&f);
 
-    /* Reopen and skip what was read before. */
+    /*
+     * Reopen, and go back to the last record read by its RFA. If that
+     * fails or finds a different record, skip what was read before
+     * record by record instead, so the marker question still gets an
+     * answer.
+     */
     st = r_open(&f, name);
     if (!(st & 1)) {
         printf("  reopen: %s\n", probe_msg(st));
         probe_fail("reopen the operator log");
         return;
     }
-    for (i = 0; i < n + more && (r_get(&f) & 1); i++)
-        ;
+    by_rfa = 0;
+    if (n + more > 0) {
+        printf("  last record's RFA: %04x %04x %04x\n",
+               (unsigned) rfa[0], (unsigned) rfa[1], (unsigned) rfa[2]);
+        t0 = time(NULL);
+        by_rfa = r_get_at(&f, rfa, last, lastlen, &st);
+        if (by_rfa) {
+            probe_ok("reopened at the last record read, by its RFA");
+            printf("  in %ld s\n", (long) (time(NULL) - t0));
+        } else if (!(st & 1)) {
+            printf("  $GET by RFA: %s\n", probe_msg(st));
+            probe_fail("go back to the last record by its RFA");
+        } else {
+            printf("  $GET by RFA found a different record:\n");
+            print_text(rec, f.rab.rab$w_rsz);
+            probe_fail("go back to the last record by its RFA");
+        }
+    }
+    if (!by_rfa) {
+        r_close(&f);
+        st = r_open(&f, name);
+        if (!(st & 1)) {
+            printf("  reopen: %s\n", probe_msg(st));
+            probe_fail("reopen the operator log");
+            return;
+        }
+        for (i = 0; i < n + more && (r_get(&f) & 1); i++)
+            ;
+    }
     more = read_all(&f, 0, NULL, NULL, &end);
     printf("  after reopening: %lu new records\n", more);
     for (i = 0; i < more && i < KEEP; i++)
