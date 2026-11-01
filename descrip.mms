@@ -58,6 +58,12 @@ HEADERS = [.src.model]model.h,[.src.model]vo_types.h,[.src.model]version.h,-
     @- IF F$SEARCH("BUILD.DIR;1") .EQS. "" THEN CREATE/DIRECTORY [.build]
     @ DEFINE/JOB/NOLOG OPENSSL $(SSL_INCLUDE):
 
+! .LAST runs only when MMS succeeds; after a failed build, DEASSIGN/JOB
+! OPENSSL by hand.
+
+.LAST
+    @- IF F$TRNLNM("OPENSSL","LNM$JOB") .NES. "" THEN DEASSIGN/JOB OPENSSL
+
 ALL : [.build]vmsotel.exe, [.build]vmsotel_tls.exe
     @ WRITE SYS$OUTPUT "build complete: [.build]vmsotel.exe, vmsotel_tls.exe"
 
