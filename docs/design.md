@@ -342,8 +342,9 @@ the image linked (`VO_EXPECT_OPENSSL_1` or `_3`, set by the build),
 which turns a mismatch into a compile error.
 
 OpenSSL never sees a socket. It reads and writes memory BIOs, and
-`tls.c` moves the bytes through the platform interface, so TLS works
-over a `$QIO` implementation as well as over POSIX sockets.
+`tls.c` moves the bytes through the platform interface, so a `$QIO`
+implementation of that interface would carry TLS unchanged. None
+exists yet; POSIX sockets are what has run.
 
 The certificate is always verified, against `cafile` or the system's
 default CAs, and the host name or address checked (an address against

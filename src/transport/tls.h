@@ -3,8 +3,8 @@
  *
  * OpenSSL never sees a socket. It reads and writes two memory BIOs,
  * and this layer moves bytes between them and vo_net_send/vo_net_recv,
- * so TLS works over whatever the platform provides -- a $QIO channel
- * as well as a POSIX socket.
+ * so TLS needs nothing from the platform but those two calls: a $QIO
+ * implementation would carry it unchanged. Only POSIX has run.
  *
  * The certificate is always verified, against cafile if given and the
  * system's default locations otherwise, and the name or address

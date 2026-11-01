@@ -7,18 +7,18 @@ change it without wasting a round trip to a machine you cannot reach.
 vmsotel is an OpenTelemetry host-metrics agent for OpenVMS: it reads
 the system services and posts OTLP/HTTP JSON to a collector on Linux.
 The probes have been run on both machines (`docs/findings.md`).
-Phase 1 is under way. Steps 2a and 2b are done and tested on Linux:
-the model, the OTLP JSON encoder, the platform interface with a POSIX
-implementation, HTTP and TLS transport, the export queue, a fake
-source, and the agent loop (`build/vmsotel`, `build/vmsotel_tls`).
-Step 2c has run on both machines: the VMS source (`src/sources/vms/`,
-built here against `stub/` as `build/vmsotel_vmsstub`), `build_vms.com`
-(SELFTEST, RUN) and `descrip.mms` (not yet run). Its self-test matched
-SHOW and MONITOR, and the agent sent exports to docker-nuc from both.
-`make check` also checks that the three build files compile the same
-sources. Step 2d is written, not yet run on VMS: VMSOTEL_START/RUN/STOP.COM
-(detached, stop file, --log), the startup clock check, and
-docs/operations.md.
+Phase 1 -- the system metrics, sent over HTTP or TLS by an agent
+running detached -- has run on both machines. The model and encoder,
+the platform interface (POSIX), HTTP and TLS transport, the export
+queue, the fake and VMS sources (`src/sources/`; the VMS one also built
+here against `stub/` as `build/vmsotel_vmsstub`), the agent loop, and
+`build_vms.com`, `vmsotel_start/run/stop.com` and `docs/operations.md`.
+On VMS: the self-test matched SHOW and MONITOR, exports reached the
+collector intact, and the agent ran detached and stopped cleanly. Not
+yet run there: `descrip.mms`, a start from SYSTARTUP_VMS.COM, TLS (needs
+`collector.crt` on VMS), and the two fixes from the phase 1 review (no
+stall when the clock steps back; no negative CPU counter in the first
+export). `make check` also checks that the three build files agree.
 
 ## Where it lives
 

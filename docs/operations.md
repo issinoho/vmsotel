@@ -51,9 +51,12 @@ $ @dev:[dir.VMSOTEL]VMSOTEL_START
 It starts a detached process named `VMSOTEL` with NETMBX and TMPMBX
 only, running as the UIC that started it, and refuses if one is already
 running. To start it at boot, add that line to
-`SYS$MANAGER:SYSTARTUP_VMS.COM` after TCP/IP has started. Starting at
-boot also makes `system.uptime` right: boot time is converted to UTC
-with the time zone in force when the agent starts.
+`SYS$MANAGER:SYSTARTUP_VMS.COM` after TCP/IP has started (not yet
+tried on the test machines). Boot time is converted to UTC with the
+time zone in force when the agent starts, so `system.uptime` should be
+right when it starts at boot; started later, across a summer-time
+change since boot, it is an hour out -- which is what the test runs,
+started by hand after 25 October, showed.
 
 The agent will not start if its clock check fails: `time()` must agree
 with the system time less `SYS$TIMEZONE_DIFFERENTIAL` (from the system
@@ -78,8 +81,9 @@ many were lost.
 ## The log
 
 `VMSOTEL.LOG`, in the vmsotel directory, one line per event, times in
-UTC. It is opened and closed for each line, so `TYPE` works while the
-agent runs. `VMSOTEL_RUN.LOG` holds DCL's output: look there if the
+UTC. It is opened and closed for each line -- vmsguard's way round the
+C RTL's exclusive opens -- so `TYPE` should work while the agent runs;
+the test runs so far typed it only after a stop. `VMSOTEL_RUN.LOG` holds DCL's output: look there if the
 process ends without writing to `VMSOTEL.LOG`.
 
 | Line | Meaning |

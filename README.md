@@ -113,8 +113,10 @@ $ @[.vmsotel]build_vms/OUTPUT=run.log RUN
 and prints every value the agent reads beside the `SHOW` or `MONITOR`
 command that shows the same number. `RUN` sends three exports to the
 collector on docker-nuc, and a TLS one too if `collector.crt` from
-docker-nuc has been copied into `[.vmsotel]`. `descrip.mms` builds the
-same images with `MMS`.
+docker-nuc has been copied into `[.vmsotel]`. `descrip.mms` is meant
+to build the same images with `MMS`; it has not yet been run on VMS.
+
+To run the agent as a service, see `docs/operations.md`.
 
 That builds the six probes, runs them, and runs `SHOW SYSTEM` and
 `SHOW DEVICE D` beside the probes that need comparing with them. Run it
@@ -147,5 +149,9 @@ $ @[.vmsotel]build_probes/OUTPUT=headers.log HEADERS
   code were each caught by a test.
 
 The probes have since run on both VMS machines, and the collector
-configuration on docker-nuc; `docs/findings.md` has the results. The
-agent code has not run on VMS.
+configuration on docker-nuc. The agent has run on both too: built by
+`build_vms.com`, its self-test matched SHOW and MONITOR, it sent
+exports the collector decoded, and it ran detached and stopped cleanly
+through `vmsotel_start.com` and `vmsotel_stop.com`. `docs/findings.md`
+has each result and what has not yet been seen: `descrip.mms`, a start
+from `SYSTARTUP_VMS.COM`, TLS from VMS.
