@@ -268,7 +268,7 @@ static void test_nsa_logfail(void)
     CHECK(strcmp(attr(&r, "openvms.process.id"), "0000EF1F") == 0);
     CHECK(strcmp(attr(&r, "openvms.process.name"), "SSH$SSH_5627") == 0);
     CHECK(strcmp(attr(&r, "openvms.audit.status"), "%X00D380F4") == 0);
-    CHECK(strcmp(r.body, "Login failure: user ROOT from "
+    CHECK(strcmp(r.body, "Login failure: remote user ROOT from "
                  "SSH_PASSWORD:192.0.2.10") == 0);
 
     /* Every way the sizes can fail to add up. */

@@ -512,17 +512,27 @@ static void body_add(vo_log_rec *r, const char *s)
     r->body[have + n] = '\0';
 }
 
-/* "Login failure: user ROOT from SSH_PASSWORD:192.0.2.1 on FTA6741:" */
+/*
+ * "Login failure: remote user ROOT from SSH_PASSWORD:192.0.2.1 on
+ * FTA6741:". The remote user is who asked, as the far end gave it: the
+ * name an SSH client sent, or the user who ran SET HOST (findings 41).
+ * It is named as such so that a failure from IAIN@MYI64 does not read as
+ * IAIN's own login failing. The name tried is not in the journal when it
+ * matched no account: USERNAME is then "<login>".
+ */
 static void audit_body(vo_log_rec *r, unsigned type, unsigned subtype)
 {
     const char *user = attr_val(r, "openvms.audit.remote_username");
+    const char *label = " remote user ";
     const char *from = attr_val(r, "openvms.audit.remote_nodename");
     const char *term = attr_val(r, "openvms.audit.terminal");
     const char *file = attr_val(r, "openvms.audit.journal");
     char num[24];
 
-    if (user == NULL)
+    if (user == NULL) {
         user = attr_val(r, "openvms.audit.username");
+        label = " user ";
+    }
     if (type < NSA_NTYPES && nsa_types[type].what != NULL) {
         body_add(r, nsa_types[type].what);
     } else {
@@ -531,7 +541,7 @@ static void audit_body(vo_log_rec *r, unsigned type, unsigned subtype)
         body_add(r, num);
     }
     body_add(r, ":");
-    if (user) { body_add(r, " user ");    body_add(r, user); }
+    if (user) { body_add(r, label);       body_add(r, user); }
     if (from) { body_add(r, " from ");    body_add(r, from); }
     if (term) { body_add(r, " on ");      body_add(r, term); }
     if (file) { body_add(r, " journal "); body_add(r, file); }

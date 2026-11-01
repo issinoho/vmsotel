@@ -159,7 +159,7 @@ void fixture_logs(vo_log_rec *recs)
     r->severity = VO_SEV_WARN;
     r->severity_text = "WARN";
     r->file = "SYS$COMMON:[SYSMGR]SECURITY.AUDIT$JOURNAL;4";
-    strcpy(r->body, "Login failure: user ROOT from SSH_PASSWORD:192.0.2.10");
+    strcpy(r->body, "Login failure: remote user ROOT from SSH_PASSWORD:192.0.2.10");
     log_str(r, "openvms.audit.type", "LOGFAIL");
     log_int(r, "openvms.audit.subtype", 5);
     log_int(r, "process.pid", 61215);

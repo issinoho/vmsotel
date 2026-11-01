@@ -106,7 +106,10 @@ has). The files are `SYS$MANAGER:OPERATOR.LOG` and
   `LOGIN`, …), `openvms.audit.subtype`, and what the record holds of
   username, remote user and node, terminal, process and final status.
   Login failures and break-in attempts are WARN. The password packet
-  and the command line are never sent.
+  and the command line are never sent. In a body, "remote user" is who
+  asked from the far end -- the name an SSH client sent, or whoever ran
+  SET HOST -- not the account tried. A name that matched no account is
+  not journalled: `openvms.audit.username` is then `<login>`.
 - **New versions** of either file are followed: once the version being
   read has nothing new, the agent moves to the highest, from its start.
 - **Nothing is lost while the collector is away**: log records stay

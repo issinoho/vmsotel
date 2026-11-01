@@ -377,8 +377,8 @@ def agent_selftest(plain, tls, vmsstub=None):
         want = ["Message from user SYSTEM on STUBBY\n"
                 "%SYSTEM-W-TEST, first new message",
                 "Message from user IAIN on STUBBY\nsecond new message",
-                "Login failure: user ROOT from SSH_PASSWORD:192.0.2.77",
-                "Login failure: user USER from SSH_PASSWORD:192.0.2.77",
+                "Login failure: remote user ROOT from SSH_PASSWORD:192.0.2.77",
+                "Login failure: remote user USER from SSH_PASSWORD:192.0.2.77",
                 "Logfile has been initialized\nthird message, in version 2"]
         files = [next((a["value"]["stringValue"] for a in r["attributes"]
                        if a["key"] == "log.file.path"), "") for r in recs]
