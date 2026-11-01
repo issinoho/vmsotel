@@ -115,7 +115,7 @@ command that shows the same number. `RUN` sends three exports to the
 collector on docker-nuc, and a TLS one too if `collector.crt` from
 docker-nuc has been copied into `[.vmsotel]`. `descrip.mms` builds the
 same images with `MMS CLEAN` and `MMS` (capitals: with the extended
-parse style a lower-case target is not found); so far run on x86.
+parse style a lower-case target is not found), on both machines.
 
 To run the agent as a service, see `docs/operations.md`.
 
@@ -154,5 +154,5 @@ configuration on docker-nuc. The agent has run on both too: built by
 `build_vms.com`, its self-test matched SHOW and MONITOR, it sent
 exports the collector decoded, and it ran detached and stopped cleanly
 through `vmsotel_start.com` and `vmsotel_stop.com`. `docs/findings.md`
-has each result and what has not yet been seen: `descrip.mms` on the
-Itanium, a start from `SYSTARTUP_VMS.COM`, TLS from VMS.
+has each result and what has not yet been seen: a start from
+`SYSTARTUP_VMS.COM`, TLS from VMS.

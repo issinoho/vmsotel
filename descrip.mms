@@ -10,7 +10,8 @@
 !
 ! build_vms.com is the path to try first: it finds the OpenSSL kit,
 ! runs the self-test, and checks everything it does. This file builds
-! the same images from the same flags (findings 42).
+! the same images from the same flags; it has built them on both
+! machines (findings 42).
 !
 ! Keep it in step with build_vms.com and the Makefile: a source file
 ! added to one must be added to all three. vmsguard learned that each
