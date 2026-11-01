@@ -4,6 +4,10 @@ $! Usage, from any directory:
 $!
 $!     @[.vmsotel]build_probes            build all six probes
 $!     @[.vmsotel]build_probes RUN        build, then run them all
+$!     @[.vmsotel]build_probes LOGS       build, then phase 3's
+$!                                      questions: operator log and
+$!                                      audit journal; sends one
+$!                                      REQUEST to the operators
 $!     @[.vmsotel]build_probes HEADERS    list the item codes the
 $!                                      system headers declare
 $!
@@ -74,6 +78,8 @@ $ gosub build_one
 $ pname = "probe_jpi"
 $ gosub build_one
 $ pname = "probe_dvi"
+$ gosub build_one
+$ pname = "probe_logs"
 $ gosub build_one
 $!
 $ build_otlp:
@@ -155,6 +161,7 @@ $ say ""
 $ say "built: ''built'"
 $ if failed .nes. "" then say "FAILED:''failed'  -- paste the messages above"
 $ if p1 .eqs. "RUN" then goto run
+$ if p1 .eqs. "LOGS" then goto logs
 $ goto finish
 $!
 $!---------------------------------------------------------------------
@@ -201,6 +208,58 @@ $!
 $! The probes ask about each item under #ifdef, so a name spelled
 $! differently on this version shows as "not declared". This lists what
 $! the headers really contain, so a second guess is not needed.
+$!
+$!---------------------------------------------------------------------
+$! LOGS: phase 3's questions -- the operator log and the audit journal
+$!---------------------------------------------------------------------
+$!
+$! Sends one REQUEST to the operators, which appears on operator
+$! consoles; changes nothing else. Errors from SHOW AUDIT without the
+$! SECURITY privilege are expected and part of the answer.
+$!
+$ logs:
+$ say ""
+$ say "privileges:"
+$ show process/privileges
+$ say "=== SHOW LOGICAL OPC$*"
+$ show logical opc$*
+$ oplog = f$trnlnm("OPC$LOGFILE_NAME")
+$ if oplog .eqs. "" then oplog = "SYS$MANAGER:OPERATOR.LOG"
+$ say "=== the operator log: ''oplog'"
+$ directory/owner/protection/size/date 'oplog'
+$ say "=== SHOW AUDIT/JOURNAL"
+$ show audit/journal
+$ say "=== the audit journal"
+$ directory/owner/protection/size/date sys$manager:security.audit$journal
+$ call run_one probe_logs "--request"
+$!
+$! The audit record layout, from the system's own definitions: NSADEF
+$! is in SYS$LIB_C.TLB on some versions and SYS$STARLET_C.TLB on
+$! others. The first 160 lines carry the record header.
+$ say ""
+$ say "=== NSADEF"
+$ nsa = ""
+$ library/extract=NSADEF/output=[.build]nsadef.h sys$library:sys$lib_c.tlb
+$ if $status then nsa = "SYS$LIB_C.TLB"
+$ if nsa .eqs. "" then library/extract=NSADEF/output=[.build]nsadef.h -
+      sys$library:sys$starlet_c.tlb
+$ if nsa .eqs. "" .and. $status then nsa = "SYS$STARLET_C.TLB"
+$ if nsa .eqs. ""
+$ then
+$     say "NSADEF not found in SYS$LIB_C.TLB or SYS$STARLET_C.TLB"
+$     goto finish
+$ endif
+$ say "from ''nsa'; the whole module is in [.build]nsadef.h"
+$ open/read nf [.build]nsadef.h
+$ nline = 0
+$ nsa_loop:
+$   read/end_of_file=nsa_done nf line
+$   say line
+$   nline = nline + 1
+$   if nline .lt. 160 then goto nsa_loop
+$ nsa_done:
+$ close nf
+$ goto finish
 $!
 $ headers:
 $ lib = "SYS$LIBRARY:SYS$STARLET_C.TLB"

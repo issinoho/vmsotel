@@ -24,7 +24,7 @@ VMSISH  = -std=c99 -Wall -Wextra -Werror -fdollars-in-identifiers -Istub
 PYTHON ?= python3
 
 B = build
-VMS_PROBES = $(B)/probe_syi $(B)/probe_rmi $(B)/probe_jpi $(B)/probe_dvi
+VMS_PROBES = $(B)/probe_syi $(B)/probe_rmi $(B)/probe_jpi $(B)/probe_dvi $(B)/probe_logs
 PROBES = $(VMS_PROBES) $(B)/probe_otlp $(B)/probe_otlp_tls
 
 # The agent: portable C99, so the full strict flags. platform_posix.c
@@ -146,6 +146,9 @@ check: all
 	$(B)/vmsotel_vmsstub --selftest
 	$(PYTHON) -I tools/fake_collector.py --agent-selftest $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
 	for p in $(VMS_PROBES); do echo "== $$p"; $$p || exit 1; done
+	rm -f $(B)/stub_operator.log
+	$(B)/probe_logs --request | grep -q 'tailing works'
+	STUB_NO_TAIL=1 $(B)/probe_logs --request | grep -q 'tail by reopening'
 	$(PYTHON) -I tools/fake_collector.py --selftest $(B)/probe_otlp $(B)/probe_otlp_tls
 
 clean:

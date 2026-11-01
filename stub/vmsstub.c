@@ -33,6 +33,8 @@
 #include "dvsdef.h"
 #include "dcdef.h"
 #include "lnmdef.h"
+#include "rms.h"
+#include "rmsdef.h"
 
 typedef struct {
     unsigned short len, code;
@@ -362,4 +364,145 @@ int sys$getdviw(unsigned int efn, unsigned short chan, void *devnam,
     }
     set_iosb(iosb, SS$_NORMAL);
     return SS$_NORMAL;
+}
+
+/* ---- RMS: the operator log and the audit journal -------------------- */
+
+/*
+ * Two files under build/, made on first open: an operator log in text
+ * records, as OPCOM writes it, and an audit journal of length-prefixed
+ * binary records. New lines appended to the log are seen by a stream
+ * already at EOF, as a tail would see them -- which VMS does is what
+ * probe_logs asks. STUB_NO_TAIL=1 makes a stream that reached EOF stay
+ * there until reopened, so probe_logs's other branch runs too.
+ */
+struct FAB cc$rms_fab;
+struct RAB cc$rms_rab;
+
+#define STUB_OPLOG   "build/stub_operator.log"
+#define STUB_JOURNAL "build/stub_audit.journal"
+
+static void make_samples(void)
+{
+    FILE *f;
+
+    if ((f = fopen(STUB_OPLOG, "r")) != NULL)
+        fclose(f);
+    else if ((f = fopen(STUB_OPLOG, "w")) != NULL) {
+        fputs("%%%%%%%%%%%  OPCOM  31-OCT-2026 20:00:00.00  %%%%%%%%%%%\n"
+              "Logfile has been initialized by operator _STUBBY$OPA0:\n"
+              "Logfile is STUBBY::SYS$SYSROOT:[SYSMGR]OPERATOR.LOG;1\n"
+              "%%%%%%%%%%%  OPCOM  31-OCT-2026 20:05:00.00  %%%%%%%%%%%\n"
+              "Message from user SYSTEM on STUBBY\n"
+              "%SYSTEM-I-STUB, a stub message\n", f);
+        fclose(f);
+    }
+    if ((f = fopen(STUB_JOURNAL, "rb")) != NULL)
+        fclose(f);
+    else if ((f = fopen(STUB_JOURNAL, "wb")) != NULL) {
+        static const unsigned char r1[] = {
+            0x20, 0x00, 0x05, 0x00, 0x01, 0x00, 0x03, 0x00,
+            'S', 'T', 'U', 'B', ' ', 'L', 'O', 'G', 'I', 'N' };
+        int i;
+
+        for (i = 0; i < 3; i++) {
+            fputc((int) sizeof r1, f);
+            fputc(0, f);
+            fwrite(r1, 1, sizeof r1, f);
+        }
+        fclose(f);
+    }
+}
+
+int sys$open(void *fabp)
+{
+    struct FAB *fab = fabp;
+    char name[256];
+    FILE *fp;
+
+    memcpy(name, fab->fab$l_fna, fab->fab$b_fns);
+    name[fab->fab$b_fns] = '\0';
+    make_samples();
+    if (strstr(name, "OPERATOR.LOG") != NULL) {
+        fab->stub_kind = 1;
+        fp = fopen(STUB_OPLOG, "r");
+        fab->fab$b_rfm = FAB$C_VAR;
+        fab->fab$w_mrs = 0;
+    } else if (strstr(name, "AUDIT$JOURNAL") != NULL) {
+        fab->stub_kind = 2;
+        fp = fopen(STUB_JOURNAL, "rb");
+        fab->fab$b_rfm = FAB$C_VAR;
+        fab->fab$w_mrs = 0;
+    } else {
+        return RMS$_FNF;
+    }
+    if (fp == NULL)
+        return RMS$_FNF;
+    fab->stub_fp = fp;
+    return RMS$_NORMAL;
+}
+
+int sys$connect(void *rabp)
+{
+    (void) rabp;
+    return RMS$_NORMAL;
+}
+
+int sys$get(void *rabp)
+{
+    struct RAB *rab = rabp;
+    FILE *fp = rab->rab$l_fab->stub_fp;
+    char line[1024];
+    size_t n;
+    int lo, hi;
+
+    if (rab->rab$l_fab->stub_kind == 1) {
+        if (rab->rab$l_fab->stub_kind == 1 && getenv("STUB_NO_TAIL") &&
+            feof(fp))
+            return RMS$_EOF;
+        if (fgets(line, sizeof line, fp) == NULL) {
+            if (!getenv("STUB_NO_TAIL"))
+                clearerr(fp);
+            return RMS$_EOF;
+        }
+        n = strlen(line);
+        if (n > 0 && line[n - 1] == '\n')
+            n--;
+    } else {
+        if ((lo = fgetc(fp)) == EOF || (hi = fgetc(fp)) == EOF) {
+            clearerr(fp);
+            return RMS$_EOF;
+        }
+        n = (size_t) (lo | hi << 8);
+        if (n > sizeof line || fread(line, 1, n, fp) != n)
+            return RMS$_EOF;
+    }
+    if (n > rab->rab$w_usz)
+        n = rab->rab$w_usz;
+    memcpy(rab->rab$l_ubf, line, n);
+    rab->rab$w_rsz = (unsigned short) n;
+    rab->rab$l_rbf = rab->rab$l_ubf;
+    return RMS$_NORMAL;
+}
+
+int sys$close(void *fabp)
+{
+    struct FAB *fab = fabp;
+
+    if (fab->stub_fp)
+        fclose(fab->stub_fp);
+    fab->stub_fp = NULL;
+    return RMS$_NORMAL;
+}
+
+void probe_stub_request(const char *text)
+{
+    FILE *f = fopen(STUB_OPLOG, "a");
+
+    if (f == NULL)
+        return;
+    fprintf(f, "%%%%%%%%%%%%%%%%%%%%%%  OPCOM  31-OCT-2026 21:00:00.00  "
+               "%%%%%%%%%%%%%%%%%%%%%%\nRequest 1, from user IAIN on STUBBY\n"
+               "\"%s\"\n", text);
+    fclose(f);
 }
