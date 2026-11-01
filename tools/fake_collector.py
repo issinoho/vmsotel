@@ -430,6 +430,7 @@ def agent_selftest(plain, tls, vmsstub=None):
           rc == 0 and len(accepted()) == 2 and
           out.count("export failed, HTTP 503") == 2 and
           "retrying in 1000 ms" in out and "retrying in 2000 ms" in out and
+          "export sent again after 2 failed attempts over 3 s" in out and
           "2 sent, 2 failed attempts, 0 dropped" in out, out)
 
     reset(script=[(429, 3, None)])
@@ -618,7 +619,7 @@ def agent_selftest(plain, tls, vmsstub=None):
     late = getattr(State, "late", None)
     check("collector starts late: queued exports delivered once it is up",
           rc == 0 and len(accepted()) == 3 and "export failed" in out and
-          "3 sent" in out, out)
+          "export sent again after" in out and "3 sent" in out, out)
     if late:
         late[0].shutdown()
         late[0].server_close()

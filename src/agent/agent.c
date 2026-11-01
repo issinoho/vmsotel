@@ -164,6 +164,8 @@ typedef struct {
     char *payload;
     vo_u64 interval_ms;
     vo_u64 backoff_ms;
+    unsigned fail_run;          /* failed attempts since the last success */
+    vo_u64 fail_since_ms;       /* monotonic time of the first of them */
     int cpu_logged[VO_CPU_MODES];
     int skew_warned;
     int stopping;               /* the last attempt: nothing is retried */
@@ -344,6 +346,13 @@ static int send_one(agent *a)
         vo_queue_pop(&a->queue);
         a->stats.exports_sent++;
         a->backoff_ms = 0;
+        /* Say when an outage ends, or the log shows only that it began. */
+        if (a->fail_run > 0)
+            vo_log("export sent again after %u failed attempt%s over %lu s",
+                   a->fail_run, a->fail_run == 1 ? "" : "s",
+                   (unsigned long) ((vo_time_mono_ms() - a->fail_since_ms)
+                                    / 1000));
+        a->fail_run = 0;
         if (r.rejected > 0)
             vo_log("collector accepted the export but rejected %lld %s: %s",
                    r.rejected, kind == Q_LOGS ? "log records" : "data points",
@@ -363,6 +372,8 @@ static int send_one(agent *a)
     }
 
     a->stats.exports_failed++;
+    if (a->fail_run++ == 0)
+        a->fail_since_ms = vo_time_mono_ms();
     if (a->stopping) {
         if (r.status != 0)
             vo_log("export failed, HTTP %d%s%s; %u waiting", r.status,

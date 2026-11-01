@@ -166,6 +166,7 @@ process ends without writing to `VMSOTEL.LOG`.
 | `CLOCK: this system is N s behind the collector …` | timestamps are off by N s; fix NTP. Logged once, and again when it recovers |
 | `cpu mode interrupt is unusable (…); not reported` | x86: that counter reads as negative there; expected, at start |
 | `export failed: …; retrying in N ms; M waiting` | the collector did not take it; it is kept and retried |
+| `export sent again after N failed attempts over S s` | the outage is over; what waited is being sent |
 | `queue full (10); oldest metrics payload dropped` | the collector has been away a while; the oldest metrics export is lost (logs go only when no metrics are left to drop) |
 | `EXPORT REJECTED, HTTP 400 on /v1/metrics: …` | the collector refused the export outright; a bug, or a wrong `path` |
 | `EXPORT REJECTED, HTTP 404 on /v1/logs: … no logs pipeline …` | the collector takes no logs: add a `logs` pipeline (I64's first run, before docker-nuc's was restarted) |
