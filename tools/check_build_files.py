@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-"""Checks that the three build files compile the same agent sources.
+"""Checks that the three build files build the agent the same way.
 
-A source added to the Makefile but not to build_vms.com or descrip.mms
-builds here and fails quietly on a machine nobody here can see (CLAUDE.md,
-"A new source file touches three build files"). This makes that a test.
+A source, include directory or define added to the Makefile but not to
+build_vms.com or descrip.mms builds here and fails quietly on a machine
+nobody here can see (CLAUDE.md, "A new source file touches three build
+files"). This makes that a test. It compares:
+
+  - the agent's sources (the VMS files build the VMS source, not the
+    fake one)
+  - the include directories
+  - which objects are built with VO_WITH_TLS, in all three
+  - which take _SOCKADDR_LEN and /POINTER_SIZE=32, in the two VMS files
 
     check_build_files.py Makefile build_vms.com descrip.mms
 """
@@ -12,38 +19,113 @@ import re
 import sys
 
 
-def vms_to_posix(spec):
+def vms_dir(spec):
+    """[.src.model] -> src/model"""
+    return spec.strip("[]").lstrip(".").replace(".", "/").lower()
+
+
+def vms_src(spec):
     """[.src.model]model.c -> src/model/model.c"""
-    m = re.fullmatch(r"\[\.([\w.]+)\](\w+\.c)", spec, re.I)
-    return m.group(1).replace(".", "/") + "/" + m.group(2) if m else None
+    m = re.fullmatch(r"(\[\.[\w.]+\])(\w+\.c)", spec, re.I)
+    return vms_dir(m.group(1)) + "/" + m.group(2).lower() if m else None
 
 
-def main(makefile, com, mms):
-    mk = open(makefile).read()
-    # Agent sources: everything under src/ that the Makefile compiles.
-    make_srcs = set(re.findall(r"^\$\(B\)/\w+\.o: (src/\S+\.c)", mk, re.M))
+def continued(text, start, mark):
+    """The logical line beginning at `start`, joined over lines that end
+    in `mark` (a backslash for make, a hyphen for DCL and MMS)."""
+    lines, out = text[start:].split("\n"), []
+    for line in lines:
+        out.append(line)
+        if not line.rstrip().endswith(mark):
+            break
+    return " ".join(out)
 
-    com_text = open(com).read()
-    com_srcs = {vms_to_posix(s) for s in
-                re.findall(r'csrc = "([^"]+)"', com_text)}
 
-    mms_text = open(mms).read()
-    mms_srcs = {vms_to_posix(s) for s in
-                re.findall(r"^\[\.build\]\w+\.obj : (\[[^\]]+\]\w+\.c)",
-                           mms_text, re.M)}
+def makefile(path):
+    t = open(path).read()
+    srcs = set(re.findall(r"^\$\(B\)/\w+\.o: (src/\S+\.c)", t, re.M))
+    inc = continued(t, t.index("AGENT_INC ="), "\\")
+    dirs = set(re.findall(r"-I(src/[\w/]+)", inc))
+    flags = {}
+    for obj, recipe in re.findall(r"^\$\(B\)/(\w+)\.o: src/\S+\.c.*\n\t(.*)",
+                                  t, re.M):
+        flags[obj] = {"tls": "-DVO_WITH_TLS" in recipe}
+    return srcs, dirs, flags
 
-    failures = 0
-    for name, srcs in (("build_vms.com", com_srcs), ("descrip.mms", mms_srcs)):
-        # The fake source is Linux-only; the VMS files build the VMS one.
-        want = {s for s in make_srcs if "/fake/" not in s}
-        missing, extra = want - srcs, srcs - want
-        if missing or extra:
-            failures += 1
-            print(f"FAIL  {name}: missing {sorted(missing)}, "
-                  f"not in Makefile {sorted(extra)}")
-        else:
-            print(f"ok    {name} compiles the Makefile's {len(want)} "
-                  f"agent sources")
+
+def build_vms(path):
+    t = open(path).read()
+    srcs = {vms_src(s) for s in re.findall(r'csrc = "([^"]+)"', t)}
+    base = continued(t, t.index("$ cc_base ="), "-")
+    dirs = {vms_dir(d) for d in re.findall(r"\[\.src[\w.]*\]", base, re.I)}
+    flags, cobj, cflags = {}, None, ""
+    for line in t.split("\n"):
+        m = re.match(r'\$ cobj = "(\w+)"', line)
+        if m:
+            cobj = m.group(1)
+        m = re.match(r"\$ cflags = (.*)", line)
+        if m:
+            cflags = m.group(1)
+        if line.strip() == "$ gosub compile":
+            flags[cobj] = {"tls": "VO_WITH_TLS" in cflags,
+                           "sockaddr": "_SOCKADDR_LEN" in cflags,
+                           "ptr32": "POINTER_SIZE=32" in cflags}
+    return srcs, dirs, flags
+
+
+def descrip_mms(path):
+    t = open(path).read()
+    srcs, flags = set(), {}
+    for m in re.finditer(r"^\[\.build\](\w+)\.obj : (\[[^\]]+\]\w+\.c)", t,
+                         re.M):
+        srcs.add(vms_src(m.group(2)))
+        rule = t[m.end():t.find("\n\n", m.end())]
+        flags[m.group(1)] = {"tls": "VO_WITH_TLS" in rule,
+                             "sockaddr": "_SOCKADDR_LEN" in rule,
+                             "ptr32": "POINTER_SIZE=32" in rule}
+    inc = continued(t, t.index("INCLUDES ="), "-")
+    dirs = {vms_dir(d) for d in re.findall(r"\[\.src[\w.]*\]", inc, re.I)}
+    return srcs, dirs, flags
+
+
+def main(mk, com, mms):
+    failures = []
+
+    def same(what, a_name, a, b_name, b):
+        if a != b:
+            failures.append(f"{what}: {a_name} has {sorted(a - b)} that "
+                            f"{b_name} lacks, and lacks {sorted(b - a)}")
+
+    m_srcs, m_dirs, m_flags = makefile(mk)
+    c_srcs, c_dirs, c_flags = build_vms(com)
+    d_srcs, d_dirs, d_flags = descrip_mms(mms)
+
+    want = {s for s in m_srcs if "/fake/" not in s}
+    same("sources", "Makefile", want, "build_vms.com", c_srcs)
+    same("sources", "Makefile", want, "descrip.mms", d_srcs)
+    same("include directories", "Makefile", m_dirs, "build_vms.com", c_dirs)
+    same("include directories", "Makefile", m_dirs, "descrip.mms", d_dirs)
+
+    def with_flag(flags, f):
+        return {o for o, fl in flags.items() if fl.get(f)}
+
+    m_tls = with_flag(m_flags, "tls")
+    same("objects built with VO_WITH_TLS", "Makefile", m_tls,
+         "build_vms.com", with_flag(c_flags, "tls"))
+    same("objects built with VO_WITH_TLS", "Makefile", m_tls,
+         "descrip.mms", with_flag(d_flags, "tls"))
+    for f, what in (("sockaddr", "_SOCKADDR_LEN"), ("ptr32", "/POINTER_SIZE=32")):
+        same(f"objects built with {what}", "build_vms.com",
+             with_flag(c_flags, f), "descrip.mms", with_flag(d_flags, f))
+    same("objects", "build_vms.com", set(c_flags), "descrip.mms", set(d_flags))
+
+    for f in failures:
+        print("FAIL  " + f)
+    if not failures:
+        print(f"ok    the three build files agree: {len(want)} agent sources, "
+              f"{len(m_dirs)} include directories, {len(m_tls)} TLS objects, "
+              f"_SOCKADDR_LEN on {sorted(with_flag(c_flags, 'sockaddr'))}, "
+              f"/POINTER_SIZE=32 on {sorted(with_flag(c_flags, 'ptr32'))}")
     return 1 if failures else 0
 
 
