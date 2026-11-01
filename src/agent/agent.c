@@ -56,6 +56,7 @@
 
 #define MAX_BACKOFF_MS  3600000ULL      /* Retry-After is honoured up to here */
 #define SKEW_WARN_S     2               /* the probes' threshold */
+#define SKEW_CLEAR_S    1               /* and back within this to clear */
 #define CONFIG_MAX      65536
 #define LOG_BATCH       64              /* log records read at a time */
 #define LOG_ROUNDS      64              /* batches read per collection */
@@ -326,7 +327,11 @@ static int send_one(agent *a)
     outcome = vo_http_post(&a->target, p, len, &r);
     if (r.have_date) {
         long long skew = (long long) sent_at - r.date_unix;
-        int off = skew > SKEW_WARN_S || skew < -SKEW_WARN_S;
+        /* Out past 2 s, back only within 1: the Date header has whole
+           seconds, so a clock 2 s off reads 2 or 3 by turns, and one
+           threshold flickered (both machines, findings 44). */
+        long long lim = a->skew_warned ? SKEW_CLEAR_S : SKEW_WARN_S;
+        int off = skew > lim || skew < -lim;
 
         a->stats.have_skew = 1;
         a->stats.skew_s = skew;
@@ -338,7 +343,7 @@ static int send_one(agent *a)
                    "timestamp is off by that much -- check NTP",
                    skew < 0 ? -skew : skew, skew < 0 ? "behind" : "ahead of");
         else if (!off && a->skew_warned)
-            vo_log("clock now within %d s of the collector", SKEW_WARN_S);
+            vo_log("clock now within %d s of the collector", SKEW_CLEAR_S);
         a->skew_warned = off;
     }
 

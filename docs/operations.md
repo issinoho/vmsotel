@@ -166,7 +166,7 @@ process ends without writing to `VMSOTEL.LOG`.
 | `vmsotel 0.1.0 starting: http://…, every 60 s, queue 10` | started |
 | `to stop: create …VMSOTEL.STOP` | where the stop file goes |
 | `not starting: clock check failed: …` | time zone misconfigured; nothing sent |
-| `CLOCK: this system is N s behind the collector …` | timestamps are off by N s; fix NTP. Logged once, and again when it recovers |
+| `CLOCK: this system is N s behind the collector …` | timestamps are off by N s (more than 2); fix NTP. Logged once; `clock now within 1 s of the collector` when it recovers |
 | `cpu mode interrupt is unusable (…); not reported` | x86: that counter reads as negative there; expected, at start |
 | `export failed: …; retrying in N ms; M waiting` | the collector did not take it; it is kept and retried |
 | `export sent again after N failed attempts over S s` | the outage is over; what waited is being sent |

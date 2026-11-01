@@ -109,6 +109,7 @@ class State:
     """What the handler should do, and what it saw."""
     status = 200
     date_offset = 0          # seconds added to the Date header
+    date_offsets = []        # per response, in order, before date_offset
     last = None              # (ok, message, points) of the last request
     # Responses to give, in order, before falling back to `status`:
     # (status, Retry-After or None, body or None).
@@ -124,8 +125,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         sys.stderr.write("collector: " + (fmt % args) + "\n")
 
     def date_time_string(self, timestamp=None):
-        return email.utils.formatdate(time.time() + State.date_offset,
-                                      usegmt=True)
+        off = (State.date_offsets.pop(0) if State.date_offsets
+               else State.date_offset)
+        return email.utils.formatdate(time.time() + off, usegmt=True)
 
     def do_POST(self):
         n = int(self.headers.get("Content-Length", "0"))
@@ -306,10 +308,11 @@ def agent_selftest(plain, tls, vmsstub=None):
             failures += 1
             print(out)
 
-    def reset(script=(), status=200, offset=0):
+    def reset(script=(), status=200, offset=0, offsets=()):
         State.script = list(script)
         State.status = status
         State.date_offset = offset
+        State.date_offsets = list(offsets)
         State.seen = []
 
     def accepted(path=None):
@@ -461,6 +464,15 @@ def agent_selftest(plain, tls, vmsstub=None):
           rc == 0 and skew is not None and -3602 <= skew <= -3598 and
           out.count("CLOCK: this system is 3600 s behind the collector") == 1,
           out)
+
+    # A clock near the edge: the Date header has whole seconds, so a
+    # node 2 s off reads 2 or 3 from one export to the next (both VMS
+    # machines, findings 44). Warned once, cleared once -- not each time.
+    reset(offsets=[4, 2, 4, 2, 0])
+    rc, out = run(plain, conf(port), 5)
+    check("clock skew around the edge: warned once, cleared once",
+          rc == 0 and out.count("CLOCK: this system is") == 1 and
+          out.count("clock now within 1 s of the collector") == 1, out)
 
     reset()
     rc, out = run(plain, conf(port, "max_payload = 4096\n"), 1, drain=1)
