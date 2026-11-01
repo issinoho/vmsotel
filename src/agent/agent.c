@@ -175,7 +175,8 @@ static void collect(agent *a)
         for (i = 0; i < VO_CPU_MODES; i++)
             if (a->state.cpu_dropped[i] && !a->cpu_logged[i]) {
                 a->cpu_logged[i] = 1;
-                vo_log("cpu mode %s went backwards; no longer reported",
+                vo_log("cpu mode %s is unusable (it went backwards, or "
+                       "reads as negative); not reported",
                        vo_cpu_mode_name(i));
             }
     /* The precise clock: the UTC one is whole seconds on VMS, which

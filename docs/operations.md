@@ -88,7 +88,7 @@ process ends without writing to `VMSOTEL.LOG`.
 | `to stop: create …VMSOTEL.STOP` | where the stop file goes |
 | `not starting: clock check failed: …` | time zone misconfigured; nothing sent |
 | `CLOCK: this system is N s behind the collector …` | timestamps are off by N s; fix NTP. Logged once, and again when it recovers |
-| `cpu mode interrupt went backwards; no longer reported` | x86: that counter is unusable there; expected |
+| `cpu mode interrupt is unusable (…); not reported` | x86: that counter reads as negative there; expected, at start |
 | `export failed: …; retrying in N ms; M waiting` | the collector did not take it; it is kept and retried |
 | `queue full (10); oldest payload dropped` | the collector has been away a while; the oldest export is lost |
 | `EXPORT REJECTED, HTTP 400: …` | the collector refused the export outright; a bug, or a wrong `path` |

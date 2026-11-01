@@ -139,8 +139,8 @@ vo_u64 vo_wide_update(vo_wide *w, vo_u32 reading, vo_u64 now_ns);
 /*
  * Builds a snapshot from a reading. snap->raw points at raw, which must
  * outlive the snapshot. Returns the number of CPU modes newly dropped
- * in this update, so the caller can log them; vo_cpu_mode_name() names
- * them.
+ * in this update -- one that went backwards, or read 2^63 or more --
+ * so the caller can log them; vo_cpu_mode_name() names them.
  */
 int vo_model_update(vo_state *st, const vo_raw *raw, vo_snapshot *snap);
 

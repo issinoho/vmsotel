@@ -200,13 +200,23 @@ static void test_cpu_backwards(void)
     vo_raw r;
     vo_snapshot s;
 
-    /* x86's RMI$_CPUINTSTK falls; it is dropped for good, once. */
+    /* x86's RMI$_CPUINTSTK reads near 2^64: unusable from the first
+       reading, so it is never sent at all. */
     fixture_full(&r);
     vo_state_init(&st);
     r.cpu_ticks[VO_CPU_INTERRUPT] = 0xFFFFFFFFFFD00000ULL;
+    CHECK(vo_model_update(&st, &r, &s) == 1);
+    CHECK(!s.cpu_present[VO_CPU_INTERRUPT]);
+    CHECK(s.cpu_present[VO_CPU_KERNEL]);
+    r.cpu_ticks[VO_CPU_INTERRUPT] -= 14;
+    CHECK(vo_model_update(&st, &r, &s) == 0);        /* not reported twice */
+    CHECK(!s.cpu_present[VO_CPU_INTERRUPT]);
+
+    /* One that is plausible but then falls is dropped when it falls. */
+    fixture_full(&r);
+    vo_state_init(&st);
     CHECK(vo_model_update(&st, &r, &s) == 0);
     CHECK(s.cpu_present[VO_CPU_INTERRUPT]);
-
     r.cpu_ticks[VO_CPU_INTERRUPT] -= 14;
     r.cpu_ticks[VO_CPU_KERNEL] += 194;
     CHECK(vo_model_update(&st, &r, &s) == 1);
@@ -216,6 +226,15 @@ static void test_cpu_backwards(void)
     r.cpu_ticks[VO_CPU_INTERRUPT] += 1000;           /* rising again */
     CHECK(vo_model_update(&st, &r, &s) == 0);        /* not reported twice */
     CHECK(!s.cpu_present[VO_CPU_INTERRUPT]);         /* and stays dropped */
+
+    /* 2^63 - 1 is still a count; 2^63 is not. */
+    fixture_full(&r);
+    vo_state_init(&st);
+    r.cpu_ticks[VO_CPU_USER] = 0x7FFFFFFFFFFFFFFFULL;
+    r.cpu_ticks[VO_CPU_IDLE] = 0x8000000000000000ULL;
+    CHECK(vo_model_update(&st, &r, &s) == 1);
+    CHECK(s.cpu_present[VO_CPU_USER]);
+    CHECK(!s.cpu_present[VO_CPU_IDLE]);
 
     /* A mode the source never had is simply absent, not dropped. */
     r.cpu_present[VO_CPU_COMPAT] = 0;

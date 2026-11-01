@@ -74,12 +74,19 @@ int vo_model_update(vo_state *st, const vo_raw *raw, vo_snapshot *snap)
      * backwards is not a counter: x86 E9.2-4's RMI$_CPUINTSTK sits near
      * 2^64 and falls. It is dropped for the life of the agent, since a
      * series that comes and goes is worse than one that is absent.
+     *
+     * A reading of 2^63 or more is dropped from the first: no count of
+     * 10 ms ticks gets there (it would take 10^11 years), and as a
+     * signed number it is negative, which is what x86's is. Waiting to
+     * see it fall sent one absurd value, 1.8e17 s, with the first
+     * export after every start.
      */
     for (i = 0; i < VO_CPU_MODES; i++) {
         if (!raw->cpu_present[i])
             continue;
-        if (st->cpu_seen && !st->cpu_dropped[i] &&
-            raw->cpu_ticks[i] < st->cpu_last[i]) {
+        if (!st->cpu_dropped[i] &&
+            (raw->cpu_ticks[i] >= 0x8000000000000000ULL ||
+             (st->cpu_seen && raw->cpu_ticks[i] < st->cpu_last[i]))) {
             st->cpu_dropped[i] = 1;
             newly_dropped++;
         }
