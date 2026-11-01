@@ -426,7 +426,7 @@ and the numbers in MONITOR are the other end.
    Built, and run detached for an hour on both machines (findings 40:
    operator-log records from I64, audit records from x86's SSH
    brute force), following REPLY/LOG and SET AUDIT/SERVER=NEW_LOG to
-   the new versions on x86 (findings 41):
+   the new versions on both machines (findings 41):
    `src/model/logparse.c` parses both
    formats, `vo_otlp_encode_logs` writes ExportLogsServiceRequest,
    `src/sources/vms/vms_logs.c` reads the files, and the agent queues

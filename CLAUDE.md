@@ -29,8 +29,9 @@ Phase 3, the operator log and the audit journal as OTLP logs
 (`logs.opcom`, `logs.audit`; READALL), is built and has run detached
 for an hour on both machines (findings 40): I64's operator-log records
 and x86's audit records (live SSH login failures) reached the collector
-with their own timestamps; on x86 it followed both files to new
-versions without loss or repeats (findings 41; not yet tried on I64). Its probes (findings 33–38) are answered on both
+with their own timestamps; on both it followed REPLY/LOG and SET
+AUDIT/SERVER=NEW_LOG to the new versions without loss or repeats
+(findings 41). Its probes (findings 33–38) are answered on both
 machines; `docs/design.md`, "Phases", says what they decided. The
 parsers are pure (`src/model/logparse.c`, tested on real records from
 both machines); the reader is `src/sources/vms/vms_logs.c`, run here
