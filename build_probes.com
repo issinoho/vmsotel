@@ -227,8 +227,6 @@ $ oplog = f$trnlnm("OPC$LOGFILE_NAME")
 $ if oplog .eqs. "" then oplog = "SYS$MANAGER:OPERATOR.LOG"
 $ say "=== the operator log: ''oplog'"
 $ directory/owner/protection/size/date 'oplog'
-$ say "=== REPLY/STATUS (needs OPER): which classes the operator log takes"
-$ reply/status
 $ say "=== SHOW AUDIT/JOURNAL"
 $ show audit/journal
 $ say "=== the audit journal"

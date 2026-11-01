@@ -2,7 +2,7 @@
  * vmsotel probe: what phase 3 (logs) can read -- the operator log and
  * the security audit journal.
  *
- *     probe_logs [--request] [--oplog FILE] [--journal FILE]
+ *     probe_logs [--request [--wait SECONDS]] [--oplog FILE] [--journal FILE]
  *
  * Answers, for each file, on each machine, with and without privilege:
  *
@@ -15,7 +15,9 @@
  *     3. With --request: one REQUEST message is sent to the operators
  *        (it appears on operator consoles), and the probe watches for
  *        it. Does a new record appear on the stream already open -- a
- *        tail -- or only after closing and reopening the file?
+ *        tail -- or only after closing and reopening the file -- and
+ *        how long after the REQUEST? It looks every 15 s, for up to
+ *        --wait seconds (600).
  *     4. On reopening, can it go straight back to the last record read,
  *        by that record's RFA, instead of reading from the start? I64's
  *        log holds 4.5 million records, too many to skip each interval.
@@ -42,6 +44,8 @@
 #define REC_MAX   8192          /* audit records can be large */
 #define KEEP      6             /* records kept to print */
 #define SHOW_TEXT 132
+#define POLL_S    15          /* seconds between looks for the marker */
+#define WAIT_S    600         /* longest wait for it, by default */
 
 typedef struct {
     struct FAB fab;
@@ -172,10 +176,23 @@ static void print_hex(const unsigned char *b, unsigned short len)
     }
 }
 
+static int contains(const unsigned char *b, unsigned short len,
+                    const char *s)
+{
+    size_t n = strlen(s), i;
+
+    for (i = 0; i + n <= len; i++)
+        if (memcmp(b + i, s, n) == 0)
+            return 1;
+    return 0;
+}
+
 /* Reads to the end. Returns records read; sizes are counted. */
-static unsigned long read_all(rfile *f, unsigned long base,
-                              unsigned short *minlen, unsigned short *maxlen,
-                              unsigned int *end)
+static unsigned long read_all_sz(rfile *f, unsigned long base,
+                                 unsigned short *minlen,
+                                 unsigned short *maxlen,
+                                 const char *marker, int *hit,
+                                 unsigned int *end)
 {
     unsigned long n = 0;
     unsigned int st;
@@ -188,10 +205,75 @@ static unsigned long read_all(rfile *f, unsigned long base,
             *minlen = len;
         if (maxlen && len > *maxlen)
             *maxlen = len;
+        if (marker && contains(rec, len, marker))
+            *hit = 1;
         n++;
     }
     *end = st;
     return n;
+}
+
+/* Reads to the end, looking for `marker` when one is given. */
+static unsigned long read_all(rfile *f, unsigned long base,
+                              const char *marker, int *hit,
+                              unsigned int *end)
+{
+    return read_all_sz(f, base, NULL, NULL, marker, hit, end);
+}
+
+static unsigned long reopen_last;   /* records the last reopen read */
+
+/*
+ * Opens the log afresh, goes back to the record at `rfa` (checking it
+ * is `want`), and reads what follows. If going back by RFA fails it
+ * says why, once, and skips `skip` records from the start instead.
+ */
+static unsigned long reopen_read(const char *name,
+                                 const unsigned short rfa[3],
+                                 const unsigned char *want,
+                                 unsigned short wantlen, unsigned long skip,
+                                 const char *marker, int *hit, int report)
+{
+    rfile g;
+    unsigned int st, end;
+    unsigned long i, got;
+    int ok = 0;
+
+    *hit = 0;
+    st = r_open(&g, name);
+    if (!(st & 1)) {
+        if (report) {
+            printf("  reopen: %s\n", probe_msg(st));
+            probe_fail("reopen the operator log");
+        }
+        return 0;
+    }
+    if (skip > 0) {
+        ok = r_get_at(&g, rfa, want, wantlen, &st);
+        if (report) {
+            if (ok)
+                probe_ok("reopened at the last record read, by its RFA");
+            else if (!(st & 1)) {
+                printf("  $GET by RFA: %s\n", probe_msg(st));
+                probe_fail("go back to the last record by its RFA");
+            } else {
+                printf("  $GET by RFA found a different record:\n");
+                print_text(rec, g.rab.rab$w_rsz);
+                probe_fail("go back to the last record by its RFA");
+            }
+        }
+        if (!ok) {
+            r_close(&g);
+            if (!(r_open(&g, name) & 1))
+                return 0;
+            for (i = 0; i < skip && (r_get(&g) & 1); i++)
+                ;
+        }
+    }
+    got = read_all(&g, 0, marker, hit, &end);
+    reopen_last = got;
+    r_close(&g);
+    return got;
 }
 
 static void print_kept(unsigned long total, int hex)
@@ -206,16 +288,6 @@ static void print_kept(unsigned long total, int hex)
     }
 }
 
-static int contains(const unsigned char *b, unsigned short len,
-                    const char *s)
-{
-    size_t n = strlen(s), i;
-
-    for (i = 0; i + n <= len; i++)
-        if (memcmp(b + i, s, n) == 0)
-            return 1;
-    return 0;
-}
 
 static void send_request(const char *marker)
 {
@@ -233,13 +305,13 @@ static void send_request(const char *marker)
 
 /* ---- OPCOM --------------------------------------------------------- */
 
-static void opcom(const char *name, int request)
+static void opcom(const char *name, int request, long wait)
 {
     rfile f;
     unsigned int st, end;
     unsigned long n, more, i;
-    char marker[80];
-    int seen = 0, by_rfa;
+    char marker[80], msg[120];
+    long tail_at, reopen_at;
     time_t t0;
     unsigned short rfa[3];
     unsigned char last[REC_MAX];
@@ -272,98 +344,74 @@ static void opcom(const char *name, int request)
         return;
     }
 
+    /*
+     * What the reopening reader goes back to: the last record of the
+     * first full read, by its RFA.
+     */
+    memcpy(rfa, f.last_rfa, sizeof rfa);
+    lastlen = 0;
+    if (n > 0) {
+        lastlen = kept_len[(n - 1) % KEEP];
+        memcpy(last, kept[(n - 1) % KEEP], lastlen);
+        printf("  last record's RFA: %04x %04x %04x\n",
+               (unsigned) rfa[0], (unsigned) rfa[1], (unsigned) rfa[2]);
+    }
+
     sprintf(marker, "vmsotel probe_logs marker %lu", (unsigned long) time(NULL));
+    t0 = time(NULL);
     send_request(marker);
 
     /*
-     * The same stream, after EOF: does RMS hand over what was added?
-     * Polled every 5 s for a minute: on x86 nothing had appeared after
-     * 5 s, which may only mean OPCOM had not written it yet.
+     * Two readers, polled together every POLL_S seconds for up to
+     * `wait` seconds: the stream that read to EOF above, reading on (a
+     * tail), and a fresh open each time that goes back by RFA. x86 has
+     * shown the marker to neither within a minute in one run, and only
+     * to a reopen, alongside a message OPCOM wrote 20 s later, in
+     * another: OPCOM seems to write when it chooses. So this waits
+     * long enough to see when, and stops once a reopen has seen it.
      */
     more = 0;
-    for (i = 0; i < 12 && !seen; i++) {
-        unsigned long got, k;
+    tail_at = reopen_at = -1;
+    for (i = 0; reopen_at < 0 && (long) (i * POLL_S) < wait; i++) {
+        unsigned long got;
+        long now;
+        int hit = 0;
 
 #ifdef __VMS
-        sleep(5);       /* the stub's log changes only when told to */
+        sleep(POLL_S);  /* the stub's log changes only when told to */
 #endif
-        got = read_all(&f, n + more, NULL, NULL, &end);
-        for (k = n + more; k < n + more + got; k++)
-            if (contains(kept[k % KEEP], kept_len[k % KEEP], marker))
-                seen = 1;
+        now = (long) (time(NULL) - t0);
+        got = read_all(&f, n + more, marker, &hit, &end);
         more += got;
-        printf("  on the open stream after %2lu s: %lu new records\n",
-               (i + 1) * 5, more);
-    }
-    for (i = n; i < n + more && i < n + KEEP; i++)
-        print_text(kept[i % KEEP], kept_len[i % KEEP]);
-    if (seen) {
-        probe_ok("the marker appeared on the open stream: tailing works");
-        r_close(&f);
-        return;
-    }
-    printf("  marker not seen on the open stream\n");
-    memcpy(rfa, f.last_rfa, sizeof rfa);
-    lastlen = 0;
-    if (n + more > 0) {
-        lastlen = kept_len[(n + more - 1) % KEEP];
-        memcpy(last, kept[(n + more - 1) % KEEP], lastlen);
+        if (hit && tail_at < 0)
+            tail_at = now;
+        got = reopen_read(name, rfa, last, lastlen, n, marker, &hit, i == 0);
+        if (hit && reopen_at < 0)
+            reopen_at = now;
+        printf("  after %4ld s: open stream %lu new, reopened %lu new%s\n",
+               now, more, got, hit ? ", with the marker" : "");
+        fflush(stdout);
     }
     r_close(&f);
 
-    /*
-     * Reopen, and go back to the last record read by its RFA. If that
-     * fails or finds a different record, skip what was read before
-     * record by record instead, so the marker question still gets an
-     * answer.
-     */
-    st = r_open(&f, name);
-    if (!(st & 1)) {
-        printf("  reopen: %s\n", probe_msg(st));
-        probe_fail("reopen the operator log");
-        return;
-    }
-    by_rfa = 0;
-    if (n + more > 0) {
-        printf("  last record's RFA: %04x %04x %04x\n",
-               (unsigned) rfa[0], (unsigned) rfa[1], (unsigned) rfa[2]);
-        t0 = time(NULL);
-        by_rfa = r_get_at(&f, rfa, last, lastlen, &st);
-        if (by_rfa) {
-            probe_ok("reopened at the last record read, by its RFA");
-            printf("  in %ld s\n", (long) (time(NULL) - t0));
-        } else if (!(st & 1)) {
-            printf("  $GET by RFA: %s\n", probe_msg(st));
-            probe_fail("go back to the last record by its RFA");
-        } else {
-            printf("  $GET by RFA found a different record:\n");
-            print_text(rec, f.rab.rab$w_rsz);
-            probe_fail("go back to the last record by its RFA");
-        }
-    }
-    if (!by_rfa) {
-        r_close(&f);
-        st = r_open(&f, name);
-        if (!(st & 1)) {
-            printf("  reopen: %s\n", probe_msg(st));
-            probe_fail("reopen the operator log");
-            return;
-        }
-        for (i = 0; i < n + more && (r_get(&f) & 1); i++)
-            ;
-    }
-    more = read_all(&f, 0, NULL, NULL, &end);
-    printf("  after reopening: %lu new records\n", more);
-    for (i = 0; i < more && i < KEEP; i++)
-        if (contains(kept[i % KEEP], kept_len[i % KEEP], marker))
-            seen = 1;
-    print_kept(more, 0);
-    r_close(&f);
-    if (seen)
-        probe_ok("the marker appeared after reopening: tail by reopening");
-    else
+    if (tail_at >= 0) {
+        sprintf(msg, "the marker appeared on the open stream after %ld s:"
+                " tailing works", tail_at);
+        probe_ok(msg);
+    } else
+        printf("  the open stream never showed the marker\n");
+    if (reopen_at >= 0) {
+        sprintf(msg, "the marker appeared after reopening, %ld s after "
+                "the REQUEST", reopen_at);
+        probe_ok(msg);
+        if (tail_at < 0)
+            printf("  so: tail by reopening\n");
+        print_kept(reopen_last, 0);
+    } else {
+        printf("  not seen after reopening either, in %ld s\n", wait);
         probe_fail("the marker never appeared (is OPCOM logging? "
                    "SHOW LOGICAL OPC$*; REPLY/LOG)");
+    }
 }
 
 /* ---- audit --------------------------------------------------------- */
@@ -448,7 +496,7 @@ static void audit(const char *name)
     print_hex(rec, f.rab.rab$w_rsz);
     minlen = maxlen = f.rab.rab$w_rsz;
     keep(0, f.rab.rab$w_rsz);
-    n = 1 + read_all(&f, 1, &minlen, &maxlen, &end);
+    n = 1 + read_all_sz(&f, 1, &minlen, &maxlen, NULL, NULL, &end);
     printf("  %lu records, %u to %u bytes, then %s\n", n, (unsigned) minlen,
            (unsigned) maxlen, probe_msg(end));
     printf("  the last %d:\n", n < KEEP ? (int) n : KEEP);
@@ -488,6 +536,7 @@ int main(int argc, char **argv)
     const char *oplog = getenv("OPC$LOGFILE_NAME");
     const char *journal = "SYS$MANAGER:SECURITY.AUDIT$JOURNAL";
     int request = 0, i;
+    long wait = WAIT_S;
 
     if (oplog == NULL || *oplog == '\0')
         oplog = "SYS$MANAGER:OPERATOR.LOG";
@@ -498,10 +547,12 @@ int main(int argc, char **argv)
             oplog = argv[++i];
         else if (strcmp(argv[i], "--journal") == 0 && i + 1 < argc)
             journal = argv[++i];
+        else if (strcmp(argv[i], "--wait") == 0 && i + 1 < argc)
+            wait = strtol(argv[++i], NULL, 10);
     }
 
     probe_banner("probe_logs");
-    opcom(oplog, request);
+    opcom(oplog, request, wait);
     audit(journal);
     return probe_summary();
 }
