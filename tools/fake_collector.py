@@ -443,7 +443,7 @@ def agent_selftest(plain, tls, vmsstub=None):
     rc, out = run(plain, conf(port), 2)
     check("400: dropped loudly, not retried, the next one sent",
           rc == 0 and len(State.seen) == 2 and len(accepted()) == 1 and
-          "EXPORT REJECTED, HTTP 400: proto: bad" in out and
+          "EXPORT REJECTED, HTTP 400 on /v1/metrics: proto: bad" in out and
           "1 sent, 0 failed attempts, 1 dropped" in out, out)
 
     reset(script=[(200, None, b'{"partialSuccess":{"rejectedDataPoints":'
@@ -610,7 +610,7 @@ def agent_selftest(plain, tls, vmsstub=None):
 
     later = free_port()
     reset()
-    timer = threading.Timer(2.5, lambda: State.__setattr__(
+    timer = threading.Timer(2.5, lambda: setattr(State,
         "late", start(port=later)))
     timer.start()
     rc, out = run(plain, conf(later), 3, drain=15)
@@ -628,7 +628,7 @@ def agent_selftest(plain, tls, vmsstub=None):
     later = free_port()
     reset()
     State.late = None
-    timer = threading.Timer(3.5, lambda: State.__setattr__(
+    timer = threading.Timer(3.5, lambda: setattr(State,
         "late", start(port=later)))
     timer.start()
     env = dict(os.environ, VMSOTEL_FAKE_LOG_BURST="300")

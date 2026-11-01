@@ -353,9 +353,12 @@ static int send_one(agent *a)
     if (outcome == VO_HTTP_REJECTED) {
         vo_queue_pop(&a->queue);
         a->stats.exports_dropped++;
-        vo_log("EXPORT REJECTED, HTTP %d: %s -- payload dropped; this is a "
-               "bug in vmsotel or a misconfigured path", r.status,
-               r.message[0] ? r.message : "(no message)");
+        vo_log("EXPORT REJECTED, HTTP %d on %s: %s -- payload dropped; %s",
+               r.status, a->target.path,
+               r.message[0] ? r.message : "(no message)",
+               r.status == 404 && kind == Q_LOGS
+               ? "the collector has no logs pipeline, or logs.path is wrong"
+               : "this is a bug in vmsotel or a misconfigured path");
         return 1;
     }
 
