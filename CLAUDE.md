@@ -26,8 +26,10 @@ collector's per-process CPU and memory equal SHOW SYSTEM exactly
 probing.
 
 Phase 3, the operator log and the audit journal as OTLP logs
-(`logs.opcom`, `logs.audit`; READALL), is built and tested here but
-has not run on VMS. Its probes (findings 33–38) are answered on both
+(`logs.opcom`, `logs.audit`; READALL), is built and has run detached
+for an hour on the Itanium: 2162 operator-log records reached the
+collector with OPCOM's own timestamps (findings 40). Not yet run on
+x86, and no audit record has yet gone through the agent. Its probes (findings 33–38) are answered on both
 machines; `docs/design.md`, "Phases", says what they decided. The
 parsers are pure (`src/model/logparse.c`, tested on real records from
 both machines); the reader is `src/sources/vms/vms_logs.c`, run here
