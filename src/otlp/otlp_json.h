@@ -1,9 +1,10 @@
 /*
  * vmsotel: OTLP JSON encoder.
  *
- * Writes one ExportMetricsServiceRequest, in the protobuf JSON mapping
- * that OTLP/HTTP accepts with Content-Type: application/json, into a
- * buffer the caller supplies. No allocation and no I/O.
+ * Writes one ExportMetricsServiceRequest, or (phase 3) one
+ * ExportLogsServiceRequest, in the protobuf JSON mapping that OTLP/HTTP
+ * accepts with Content-Type: application/json, into a buffer the
+ * caller supplies. No allocation and no I/O.
  *
  * Metric names, instruments, units and attribute values follow
  * OpenTelemetry semantic conventions v1.44.0 (VO_SEMCONV_VERSION),
@@ -15,6 +16,7 @@
 
 #include <stddef.h>
 
+#include "logparse.h"
 #include "model.h"
 
 #define VO_SEMCONV_VERSION "1.44.0"
@@ -72,5 +74,17 @@ enum {
 int vo_otlp_encode(const vo_resource *res, const vo_snapshot *snap,
                    const vo_agent_stats *stats,
                    char *buf, size_t cap, size_t *len);
+
+/*
+ * Encodes as many of recs[0], recs[1], ... recs[n - 1] as fit in cap
+ * bytes, whole and in order, as one ExportLogsServiceRequest;
+ * observed_ns is when they were read. On VO_OK, *used records were
+ * encoded and *len bytes written (no NUL); a caller sends the rest in
+ * another. VO_ESPACE when not even the first fits: *used is 0 and *len
+ * the size that one record needs.
+ */
+int vo_otlp_encode_logs(const vo_resource *res, const vo_log_rec *recs,
+                        size_t n, vo_u64 observed_ns,
+                        char *buf, size_t cap, size_t *len, size_t *used);
 
 #endif

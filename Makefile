@@ -48,7 +48,7 @@ AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
 VMS_SRC_CFLAGS = $(VMSISH) $(AGENT_INC)
 
 TESTS = $(B)/test_model $(B)/test_logs $(B)/test_otlp $(B)/test_transport
-GOLDEN = tests/golden/full.json tests/golden/minimal.json
+GOLDEN = tests/golden/full.json tests/golden/minimal.json tests/golden/logs.json
 
 ALL = $(PROBES) $(TESTS) $(AGENTS) $(B)/clockjump.so
 

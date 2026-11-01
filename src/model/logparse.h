@@ -47,7 +47,7 @@ typedef struct {
     vo_u64 time_ns;             /* when it happened, Unix ns; 0 unknown */
     int severity;               /* VO_SEV_* */
     const char *severity_text;  /* "INFO", ... */
-    const char *event_name;     /* audit: "openvms.audit.logfail"; or NULL */
+    const char *file;           /* the file it came from; the source sets it */
     char body[VO_LOG_BODY];
     size_t nattrs;
     vo_log_attr attrs[VO_LOG_ATTRS];

@@ -552,3 +552,110 @@ int vo_otlp_encode(const vo_resource *res, const vo_snapshot *snap,
     *len = w.len;
     return w.len <= cap ? VO_OK : VO_ESPACE;
 }
+
+/* ---- logs (phase 3) ------------------------------------------------- */
+
+#define LOGS_TAIL "]}]}]}"
+
+static void log_attrs(jw *w, const vo_log_rec *r)
+{
+    int first = 1;
+    size_t i;
+
+    lit(w, ",\"attributes\":[");
+    attr_str(w, &first, "log.file.path", r->file);
+    for (i = 0; i < r->nattrs; i++) {
+        const vo_log_attr *a = &r->attrs[i];
+
+        if (!a->is_int) {
+            attr_str(w, &first, a->key, a->sval);
+            continue;
+        }
+        sep(w, &first);
+        lit(w, "{\"key\":");
+        str(w, a->key);
+        lit(w, ",\"value\":{\"intValue\":\"");
+        snum(w, a->ival);
+        lit(w, "\"}}");
+    }
+    lit(w, "]");
+}
+
+/*
+ * One LogRecord. A time the source could not read is left out, which
+ * OTLP allows: receivers then use observedTimeUnixNano.
+ */
+static void log_record(jw *w, const vo_log_rec *r, vo_u64 observed_ns)
+{
+    lit(w, "{");
+    if (r->time_ns != 0) {
+        lit(w, "\"timeUnixNano\":");
+        qnum(w, r->time_ns);
+        lit(w, ",");
+    }
+    lit(w, "\"observedTimeUnixNano\":");
+    qnum(w, observed_ns);
+    lit(w, ",\"severityNumber\":");
+    num(w, (vo_u64) r->severity);
+    if (r->severity_text != NULL) {
+        lit(w, ",\"severityText\":");
+        str(w, r->severity_text);
+    }
+    lit(w, ",\"body\":{\"stringValue\":");
+    str(w, r->body);
+    lit(w, "}");
+    log_attrs(w, r);
+    lit(w, "}");
+}
+
+int vo_otlp_encode_logs(const vo_resource *res, const vo_log_rec *recs,
+                        size_t n, vo_u64 observed_ns,
+                        char *buf, size_t cap, size_t *len, size_t *used)
+{
+    const size_t tail = sizeof LOGS_TAIL - 1;
+    jw w;
+    size_t i;
+
+    w.buf = buf;
+    w.cap = cap;
+    w.len = 0;
+    *used = 0;
+
+    lit(&w, "{\"resourceLogs\":[{");
+    resource(&w, res, NULL);
+    lit(&w, ",\"scopeLogs\":[{\"scope\":{\"name\":");
+    str(&w, VO_SERVICE_NAME);
+    if (res->service_version != NULL) {
+        lit(&w, ",\"version\":");
+        str(&w, res->service_version);
+    }
+    lit(&w, "},\"schemaUrl\":");
+    str(&w, VO_SCHEMA_URL);
+    lit(&w, ",\"logRecords\":[");
+
+    /*
+     * Each record is written, then taken back if what is written so far
+     * and the closing brackets no longer fit: put() writes nothing past
+     * cap, so moving len back is all a retraction needs.
+     */
+    for (i = 0; i < n; i++) {
+        size_t before = w.len;
+
+        if (i > 0)
+            lit(&w, ",");
+        log_record(&w, &recs[i], observed_ns);
+        if (w.len + tail > cap) {
+            if (i == 0) {
+                lit(&w, LOGS_TAIL);
+                *len = w.len;
+                return VO_ESPACE;
+            }
+            w.len = before;
+            break;
+        }
+        *used = i + 1;
+    }
+    lit(&w, LOGS_TAIL);
+    *len = w.len;
+    return VO_OK;
+}

@@ -44,7 +44,7 @@ static void rec_clear(vo_log_rec *r, int source)
     r->time_ns = 0;
     r->severity = VO_SEV_INFO;
     r->severity_text = "INFO";
-    r->event_name = NULL;
+    r->file = NULL;
     r->body[0] = '\0';
     r->nattrs = 0;
 }
@@ -330,43 +330,42 @@ size_t vo_opcom_pending_lines(const vo_opcom_parser *p)
  */
 static const struct {
     const char *name;
-    const char *event;
     const char *what;
 } nsa_types[] = {
-    { NULL, NULL, NULL },
-    { "SERVER",     "openvms.audit.server",     "Audit server control" },
-    { "AUDIT",      "openvms.audit.audit",      "Change in auditable events" },
-    { "BREAKIN",    "openvms.audit.breakin",    "Break-in attempt" },
-    { "INSTALL",    "openvms.audit.install",    "Change to INSTALLed images" },
-    { "LOGFAIL",    "openvms.audit.logfail",    "Login failure" },
-    { "LOGIN",      "openvms.audit.login",      "Login" },
-    { "LOGOUT",     "openvms.audit.logout",     "Logout" },
-    { "MOUNT",      "openvms.audit.mount",      "Volume mount or dismount" },
-    { "NETPROXY",   "openvms.audit.netproxy",   "Network proxy change" },
-    { "ACCESS",     "openvms.audit.access",     "Object access" },
-    { "SYSUAF",     "openvms.audit.sysuaf",     "SYSUAF change" },
-    { "RIGHTSDB",   "openvms.audit.rightsdb",   "Rights database change" },
-    { "CUSTOMER",   "openvms.audit.customer",   "Application event" },
-    { "CSS",        "openvms.audit.css",        "CSS application event" },
-    { "LP",         "openvms.audit.lp",         "Layered product event" },
-    { "PRVAUD",     "openvms.audit.prvaud",     "Privilege use" },
-    { "RESERVED_1", "openvms.audit.reserved_1", "Reserved" },
-    { "RESERVED_2", "openvms.audit.reserved_2", "Reserved" },
-    { "RESERVED_3", "openvms.audit.reserved_3", "Reserved" },
-    { "RESERVED_4", "openvms.audit.reserved_4", "Reserved" },
-    { "SYSTIME",    "openvms.audit.systime",    "System time change" },
-    { "SYSGEN",     "openvms.audit.sysgen",     "SYSGEN parameter change" },
-    { "OBJ_CREATE", "openvms.audit.obj_create", "Object creation" },
-    { "OBJ_DELETE", "openvms.audit.obj_delete", "Object deletion" },
-    { "OBJ_DEACCESS", "openvms.audit.obj_deaccess", "Object deaccess" },
-    { "OBJ_ACCESS", "openvms.audit.obj_access", "Object access" },
-    { "CONNECTION", "openvms.audit.connection", "Connection" },
-    { "RESERVED_5", "openvms.audit.reserved_5", "Reserved" },
-    { "NCP",        "openvms.audit.ncp",        "NCP command" },
-    { "PROCESS",    "openvms.audit.process",    "Process control" },
-    { "OBJECT_SERVICE", "openvms.audit.object_service", "Cluster object service" },
-    { "AUTHENTICATE", "openvms.audit.authenticate", "Distributed authentication" },
-    { "PERSONA",    "openvms.audit.persona",    "Persona event" }
+    { NULL, NULL },
+    { "SERVER",     "Audit server control" },
+    { "AUDIT",      "Change in auditable events" },
+    { "BREAKIN",    "Break-in attempt" },
+    { "INSTALL",    "Change to INSTALLed images" },
+    { "LOGFAIL",    "Login failure" },
+    { "LOGIN",      "Login" },
+    { "LOGOUT",     "Logout" },
+    { "MOUNT",      "Volume mount or dismount" },
+    { "NETPROXY",   "Network proxy change" },
+    { "ACCESS",     "Object access" },
+    { "SYSUAF",     "SYSUAF change" },
+    { "RIGHTSDB",   "Rights database change" },
+    { "CUSTOMER",   "Application event" },
+    { "CSS",        "CSS application event" },
+    { "LP",         "Layered product event" },
+    { "PRVAUD",     "Privilege use" },
+    { "RESERVED_1", "Reserved" },
+    { "RESERVED_2", "Reserved" },
+    { "RESERVED_3", "Reserved" },
+    { "RESERVED_4", "Reserved" },
+    { "SYSTIME",    "System time change" },
+    { "SYSGEN",     "SYSGEN parameter change" },
+    { "OBJ_CREATE", "Object creation" },
+    { "OBJ_DELETE", "Object deletion" },
+    { "OBJ_DEACCESS", "Object deaccess" },
+    { "OBJ_ACCESS", "Object access" },
+    { "CONNECTION", "Connection" },
+    { "RESERVED_5", "Reserved" },
+    { "NCP",        "NCP command" },
+    { "PROCESS",    "Process control" },
+    { "OBJECT_SERVICE", "Cluster object service" },
+    { "AUTHENTICATE", "Distributed authentication" },
+    { "PERSONA",    "Persona event" }
 };
 
 #define NSA_NTYPES (sizeof nsa_types / sizeof nsa_types[0])
@@ -578,7 +577,6 @@ int vo_nsa_decode(const unsigned char *b, size_t len, long tdf_s,
     if (type < NSA_NTYPES && nsa_types[type].name != NULL) {
         add_str(out, "openvms.audit.type", nsa_types[type].name,
                 strlen(nsa_types[type].name));
-        out->event_name = nsa_types[type].event;
     } else {
         add_int(out, "openvms.audit.type_code", (long long) type);
     }

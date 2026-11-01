@@ -79,7 +79,7 @@ static void test_opcom(void)
                  "_X86VMS$FTA5864:, vmsotel probe_logs marker 1793526797")
           == 0);
     CHECK(r.severity == VO_SEV_INFO);
-    CHECK(r.event_name == NULL);
+    CHECK(r.file == NULL);
     CHECK(attr(&r, "openvms.opcom.user") != NULL &&
           strcmp(attr(&r, "openvms.opcom.user"), "IAIN") == 0);
     CHECK(attr(&r, "openvms.opcom.node") != NULL &&
@@ -221,7 +221,7 @@ static void test_nsa_i64_record(void)
     CHECK(vo_nsa_decode(b, at, 0, &r) == 1);
     CHECK(r.source == VO_LOG_AUDIT);
     CHECK_U64(r.time_ns, 1793491500783231000ULL);
-    CHECK(strcmp(r.event_name, "openvms.audit.audit") == 0);
+    CHECK(strcmp(attr(&r, "openvms.audit.type"), "AUDIT") == 0);
     CHECK(strcmp(attr(&r, "openvms.audit.type"), "AUDIT") == 0);
     CHECK(iattr(&r, "openvms.audit.subtype") == 12);
     CHECK(strcmp(attr(&r, "openvms.audit.system_name"), "MYI64") == 0);
@@ -258,7 +258,7 @@ static void test_nsa_logfail(void)
     size_t n = logfail(b);
 
     CHECK(vo_nsa_decode(b, n, 0, &r) == 1);
-    CHECK(strcmp(r.event_name, "openvms.audit.logfail") == 0);
+    CHECK(strcmp(attr(&r, "openvms.audit.type"), "LOGFAIL") == 0);
     CHECK(r.severity == VO_SEV_WARN);
     CHECK(strcmp(attr(&r, "openvms.audit.remote_username"), "ROOT") == 0);
     CHECK(strcmp(attr(&r, "openvms.audit.username"), "SSH$SSH") == 0);
@@ -301,7 +301,7 @@ static void test_nsa_breakin(void)
     at = put_pkt(b, at, 49, "_FTA6761:", 9);
     put_hdr(b, 3, 5, 0x1c, 6, at);
     CHECK(vo_nsa_decode(b, at, 0, &r) == 1);
-    CHECK(strcmp(r.event_name, "openvms.audit.breakin") == 0);
+    CHECK(strcmp(attr(&r, "openvms.audit.type"), "BREAKIN") == 0);
     CHECK(r.severity == VO_SEV_WARN);
     CHECK(strcmp(attr(&r, "openvms.audit.username"), "ROOT") == 0);
     CHECK(strcmp(attr(&r, "openvms.audit.terminal"), "FTA6761:") == 0);
@@ -315,7 +315,7 @@ static void test_nsa_breakin(void)
     /* An unknown type is kept, by number. */
     put_hdr(b, 77, 1, 0, 6, at);
     CHECK(vo_nsa_decode(b, at, 0, &r) == 1);
-    CHECK(r.event_name == NULL);
+    CHECK(attr(&r, "openvms.audit.type") == NULL);
     CHECK(iattr(&r, "openvms.audit.type_code") == 77);
     CHECK(strncmp(r.body, "Audit event type 77:", 20) == 0);
     CHECK(vo_nsa_type_name(5) != NULL &&

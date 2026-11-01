@@ -326,6 +326,75 @@ static void test_agent_stats(void)
     CHECK(strstr(out, "vmsotel.clock.skew") == NULL);
 }
 
+static size_t encode_logs(const vo_log_rec *recs, size_t n, size_t cap,
+                          size_t *used, int *rc)
+{
+    vo_resource res;
+    size_t len = 0;
+
+    fixture_resource(&res);
+    *rc = vo_otlp_encode_logs(&res, recs, n, FIX_NOW_NS, out, cap, &len,
+                              used);
+    if (len < sizeof out)
+        out[len] = '\0';
+    return len;
+}
+
+static void test_logs(void)
+{
+    vo_log_rec recs[FIX_NLOGS];
+    size_t full, len, used, need1;
+    int rc;
+
+    fixture_logs(recs);
+    full = encode_logs(recs, FIX_NLOGS, sizeof out, &used, &rc);
+    CHECK(rc == VO_OK);
+    CHECK_U64(used, 3);
+    CHECK(strncmp(out, "{\"resourceLogs\":[{\"resource\":", 29) == 0);
+    CHECK_CONTAINS(out, "\"severityNumber\":13,\"severityText\":\"WARN\"");
+    CHECK_CONTAINS(out, "{\"key\":\"process.pid\",\"value\":"
+                        "{\"intValue\":\"61215\"}}");
+    CHECK_CONTAINS(out, "{\"key\":\"log.file.path\",\"value\":"
+                        "{\"stringValue\":\"SYS$SYSROOT:[SYSMGR]OPERATOR.LOG;249\"}}");
+    /* DEC MCS e-acute as Latin-1, and the JSON escapes. */
+    CHECK_CONTAINS(out, "\\\"caf\\u00e9\\\" \\\\ path\\ttab");
+    CHECK_CONTAINS(out, "marker 1793526797\"}");
+
+    /* The third has no time: observed only. */
+    len = encode_logs(recs + 2, 1, sizeof out, &used, &rc);
+    CHECK(rc == VO_OK && used == 1);
+    CHECK(strstr(out, "\"timeUnixNano\"") == NULL);
+    CHECK_CONTAINS(out, "\"observedTimeUnixNano\":\"1793477869000000000\"");
+    len = encode_logs(recs, 1, sizeof out, &used, &rc);
+    CHECK_CONTAINS(out, "{\"timeUnixNano\":\"1793526797660000000\","
+                        "\"observedTimeUnixNano\"");
+    need1 = len;
+
+    /* One byte short of all three: the first two, whole, and the
+       brackets closed. */
+    len = encode_logs(recs, FIX_NLOGS, full - 1, &used, &rc);
+    CHECK(rc == VO_OK);
+    CHECK_U64(used, 2);
+    CHECK(len <= full - 1);
+    CHECK(len >= 6 && memcmp(out + len - 6, "]}]}]}", 6) == 0);
+    CHECK(strstr(out, "NOAUTH") == NULL);
+    CHECK_CONTAINS(out, "192.0.2.10\"}}]}]}]}");
+
+    /* Exactly one record's worth. */
+    len = encode_logs(recs, FIX_NLOGS, need1, &used, &rc);
+    CHECK(rc == VO_OK);
+    CHECK_U64(used, 1);
+    CHECK_U64(len, need1);
+
+    /* Not even one: an error, and the size that one needs. */
+    len = encode_logs(recs, FIX_NLOGS, need1 - 1, &used, &rc);
+    CHECK(rc == VO_ESPACE);
+    CHECK_U64(used, 0);
+    CHECK_U64(len, need1);
+    len = encode_logs(recs, FIX_NLOGS, 0, &used, &rc);
+    CHECK(rc == VO_ESPACE && used == 0 && len == need1);
+}
+
 int main(int argc, char **argv)
 {
     int write = argc == 3 && strcmp(argv[1], "--write") == 0;
@@ -348,6 +417,15 @@ int main(int argc, char **argv)
     fixture_minimal(&r);
     len = encode(&r, &res);
     golden(dir, "minimal.json", write, out, len);
+    {
+        vo_log_rec recs[FIX_NLOGS];
+        size_t used;
+        int rc;
+
+        fixture_logs(recs);
+        len = encode_logs(recs, FIX_NLOGS, sizeof out, &used, &rc);
+        golden(dir, "logs.json", write, out, len);
+    }
     if (write)
         return 0;
 
@@ -358,5 +436,6 @@ int main(int argc, char **argv)
     test_shape();
     test_agent_stats();
     test_processes();
+    test_logs();
     return check_summary("test_otlp");
 }

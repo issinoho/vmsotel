@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """A stand-in OTLP/HTTP collector for testing probe_otlp on Linux.
 
-It accepts POST /v1/metrics with Content-Type application/json, and
-checks the body the way a real collector would: parsed into the
-official ExportMetricsServiceRequest message with protobuf's JSON
-parser, which rejects unknown fields, wrong types and badly encoded
+It accepts POST /v1/metrics and /v1/logs with Content-Type
+application/json, and checks the body the way a real collector would:
+parsed into the official ExportMetricsServiceRequest or
+ExportLogsServiceRequest message with protobuf's JSON parser, which rejects unknown fields, wrong types and badly encoded
 64-bit integers. That needs the opentelemetry-proto package; without
 it only the JSON syntax and the outline are checked, and it says so.
 
@@ -41,17 +41,46 @@ import time
 try:
     from google.protobuf import json_format
     from opentelemetry.proto.collector.metrics.v1 import metrics_service_pb2
+    from opentelemetry.proto.collector.logs.v1 import logs_service_pb2
     HAVE_PROTO = True
 except ImportError:
     HAVE_PROTO = False
 
 
-def validate(body):
-    """Return (ok, message, number of data points)."""
+def validate_logs(body, doc):
+    """Return (ok, message, number of log records)."""
+    if not HAVE_PROTO:
+        if "resourceLogs" not in doc:
+            return False, "no resourceLogs", 0
+        return True, "JSON syntax only (opentelemetry-proto not installed)", -1
+    msg = logs_service_pb2.ExportLogsServiceRequest()
+    try:
+        json_format.Parse(body, msg)
+    except json_format.ParseError as e:
+        return False, f"schema: {e}", 0
+    n = 0
+    for rl in msg.resource_logs:
+        for sl in rl.scope_logs:
+            for r in sl.log_records:
+                if r.observed_time_unix_nano == 0:
+                    return False, "a log record with no observedTimeUnixNano", 0
+                if not r.body.string_value:
+                    return False, "a log record with no body", 0
+                n += 1
+    if n == 0:
+        return False, "no log records", 0
+    return True, "valid ExportLogsServiceRequest", n
+
+
+def validate(body, path=None):
+    """Return (ok, message, number of data points or log records). The
+    path says which request it must be; without one, the body does."""
     try:
         doc = json.loads(body)
     except ValueError as e:
         return False, f"not JSON: {e}", 0
+    if path == "/v1/logs" or (path is None and "resourceLogs" in doc):
+        return validate_logs(body, doc)
     if HAVE_PROTO:
         msg = metrics_service_pb2.ExportMetricsServiceRequest()
         try:
@@ -86,6 +115,7 @@ class State:
     script = []
     # Every request: (monotonic time, status sent, valid, body bytes).
     seen = []
+    logs = []                # the body of every /v1/logs request
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -102,14 +132,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(n)
         ctype = self.headers.get("Content-Type", "")
-        if self.path != "/v1/metrics":
+        if self.path not in ("/v1/metrics", "/v1/logs"):
             result = (False, f"wrong path {self.path}", 0)
         elif ctype != "application/json":
             result = (False, f"wrong Content-Type {ctype!r}", 0)
         else:
-            result = validate(body)
+            result = validate(body, self.path)
         State.last = result
-        sys.stderr.write(f"collector: {result[1]}, {result[2]} points\n")
+        sys.stderr.write(f"collector: {self.path}: {result[1]}, "
+                         f"{result[2]} {'records' if self.path == '/v1/logs' else 'points'}\n")
 
         retry_after, reply = None, None
         if not result[0]:
@@ -119,6 +150,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         else:
             status = State.status
         State.seen.append((time.monotonic(), status, result[0], body))
+        if self.path == "/v1/logs":
+            State.logs.append(body)
         if reply is None:
             reply = b"{}" if status == 200 else json.dumps(
                 {"code": 3, "message": result[1]}).encode()
@@ -508,8 +541,9 @@ def validate_files(paths):
         with open(path, "rb") as f:
             body = f.read()
         ok, msg, points = validate(body)
+        what = "records" if b'"resourceLogs"' in body else "points"
         print(f"{'ok  ' if ok else 'FAIL'}  {path}: {msg}"
-              + (f", {points} points" if points >= 0 else ""))
+              + (f", {points} {what}" if points >= 0 else ""))
         failures += 0 if ok else 1
     return 1 if failures else 0
 

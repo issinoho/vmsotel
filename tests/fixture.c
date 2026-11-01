@@ -116,3 +116,62 @@ void fixture_stats(vo_agent_stats *st)
     st->have_skew = 1;
     st->skew_s = -7;
 }
+
+static void log_str(vo_log_rec *r, const char *key, const char *v)
+{
+    vo_log_attr *a = &r->attrs[r->nattrs++];
+
+    a->key = key;
+    a->is_int = 0;
+    strcpy(a->sval, v);
+}
+
+static void log_int(vo_log_rec *r, const char *key, long long v)
+{
+    vo_log_attr *a = &r->attrs[r->nattrs++];
+
+    a->key = key;
+    a->is_int = 1;
+    a->ival = v;
+    a->sval[0] = '\0';
+}
+
+void fixture_logs(vo_log_rec *recs)
+{
+    vo_log_rec *r;
+
+    memset(recs, 0, FIX_NLOGS * sizeof *recs);
+
+    r = &recs[0];
+    r->source = VO_LOG_OPCOM;
+    r->time_ns = 1793526797660000000ULL;       /* 1-NOV-2026 09:53:17.66 */
+    r->severity = VO_SEV_INFO;
+    r->severity_text = "INFO";
+    r->file = "SYS$SYSROOT:[SYSMGR]OPERATOR.LOG;249";
+    strcpy(r->body, "Message from user IAIN on X86VMS\n"
+           "_X86VMS$FTA5864:, vmsotel probe_logs marker 1793526797");
+    log_str(r, "openvms.opcom.user", "IAIN");
+    log_str(r, "openvms.opcom.node", "X86VMS");
+
+    r = &recs[1];
+    r->source = VO_LOG_AUDIT;
+    r->time_ns = 1793491500783231000ULL;
+    r->severity = VO_SEV_WARN;
+    r->severity_text = "WARN";
+    r->file = "SYS$COMMON:[SYSMGR]SECURITY.AUDIT$JOURNAL;4";
+    strcpy(r->body, "Login failure: user ROOT from SSH_PASSWORD:192.0.2.10");
+    log_str(r, "openvms.audit.type", "LOGFAIL");
+    log_int(r, "openvms.audit.subtype", 5);
+    log_int(r, "process.pid", 61215);
+    log_str(r, "openvms.process.id", "0000EF1F");
+    log_str(r, "openvms.audit.remote_username", "ROOT");
+    log_str(r, "openvms.audit.remote_nodename", "SSH_PASSWORD:192.0.2.10");
+
+    r = &recs[2];
+    r->source = VO_LOG_OPCOM;
+    r->time_ns = 0;
+    r->severity = VO_SEV_ERROR;
+    r->severity_text = "ERROR";
+    r->file = "SYS$SYSROOT:[SYSMGR]OPERATOR.LOG;249";
+    strcpy(r->body, "%LICENSE-E-NOAUTH, \"caf\xe9\" \\ path\ttab");
+}

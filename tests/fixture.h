@@ -19,4 +19,10 @@ void fixture_minimal(vo_raw *r);     /* no pagefile, no disks, no CPU */
 void fixture_resource(vo_resource *res);
 void fixture_stats(vo_agent_stats *st);  /* x86-like: 7 s slow */
 
+/* Three log records (phase 3): an OPCOM message as x86 logged it, an
+   audit login failure with a documentation address, and an OPCOM
+   message with no time and text that needs escaping. */
+#define FIX_NLOGS 3
+void fixture_logs(vo_log_rec *recs);
+
 #endif
