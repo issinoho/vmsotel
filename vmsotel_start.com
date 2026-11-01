@@ -38,18 +38,20 @@ $ if f$search(root + "VMSOTEL.CONF") .eqs. ""
 $ then
 $     say "vmsotel: no configuration. Create ''root'VMSOTEL.CONF, for"
 $     say "example from ''root'VMSOTEL.CONF.EXAMPLE, then start again."
-$     exit 2
+$     ! %X10000002: an error in $STATUS, but with the message inhibited,
+$     ! since the lines above say what is wrong (a bare 2 prints NOMSG).
+$     exit %X10000002
 $ endif
 $ if f$search(build + "VMSOTEL_TLS.EXE") .eqs. "" .and. -
      f$search(build + "VMSOTEL.EXE") .eqs. ""
 $ then
 $     say "vmsotel: not built. Run @''root'BUILD_VMS first."
-$     exit 2
+$     exit %X10000002
 $ endif
 $ if f$search(root + "VMSOTEL_RUN.COM") .eqs. ""
 $ then
 $     say "vmsotel: cannot find ''root'VMSOTEL_RUN.COM"
-$     exit 2
+$     exit %X10000002
 $ endif
 $!
 $! One agent per system: process names are unique within a UIC group,
@@ -65,7 +67,7 @@ $ already:
 $ tmp = f$context("PROCESS", ctx, "CANCEL")
 $ say "vmsotel: already running, process ''pid'. Stop it first with"
 $ say "  @''root'VMSOTEL_STOP"
-$ exit 2
+$ exit %X10000002
 $ not_running:
 $!
 $! A stop request left over from last time would stop the new agent at

@@ -32,7 +32,9 @@ $ say "vmsotel: no acknowledgement in 10 s. Is it running?"
 $ say "  SHOW SYSTEM/PROCESS=VMSOTEL"
 $ say "The stop file is left in place; VMSOTEL_START.COM deletes it,"
 $ say "so it will not stop the next start."
-$ exit 2
+$ ! %X10000002: an error in $STATUS, but with the message inhibited,
+$ ! since the lines above say what is wrong (a bare 2 prints NOMSG).
+$ exit %X10000002
 $!
 $! Then the exit, after its last attempt to send: up to the configured
 $! timeout per queued export when the collector is down.
@@ -53,7 +55,7 @@ $   count = count + 1
 $   if count .lt. 60 then goto exit_loop
 $ say "vmsotel: still running after 60 s, process ''pid'. See"
 $ say "  TYPE ''root'VMSOTEL.LOG"
-$ exit 2
+$ exit %X10000002
 $ gone:
 $ say "vmsotel: stopped. Its summary is the last line of"
 $ say "  ''root'VMSOTEL.LOG"
