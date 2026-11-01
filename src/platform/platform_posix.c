@@ -208,12 +208,16 @@ vo_u64 vo_time_utc_ns(void)
 vo_u64 vo_time_mono_ms(void)
 {
 #ifdef __VMS
-    /* 100 ns units since 17-NOV-1858; odd status is success. */
-    unsigned long long now = 0;
-
-    if (!(sys$gettim((void *) &now) & 1))
-        return (vo_u64) time(NULL) * 1000ULL;
-    return (vo_u64) (now / 10000ULL);
+    /*
+     * time(), not $GETTIM. VMS system time is local, so $GETTIM jumps
+     * back an hour when summer time ends, and every wait computed
+     * before the jump would last an hour longer -- an agent silent for
+     * an hour each autumn. time() is UTC and does not jump then. Whole
+     * seconds are enough: every wait the agent makes is seconds long.
+     * A clock set backwards by hand still moves it; the agent's loop
+     * watches for that.
+     */
+    return (vo_u64) time(NULL) * 1000ULL;
 #else
     struct timespec ts;
 

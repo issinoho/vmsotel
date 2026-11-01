@@ -290,7 +290,7 @@ int main(int argc, char **argv)
     static agent a;
     const char *config_path = NULL;
     unsigned long cycles = 0, done = 0, drain_s = 15;
-    vo_u64 now, next_collect, next_send, drain_until = 0;
+    vo_u64 now, next_collect, next_send, drain_until = 0, last_now;
     char err[400];
     int i;
 
@@ -368,9 +368,24 @@ int main(int argc, char **argv)
     if (stop_path != NULL)
         vo_log("to stop: create %s", stop_path);
 
-    next_collect = next_send = vo_time_mono_ms();
+    next_collect = next_send = last_now = vo_time_mono_ms();
     for (;;) {
         vo_u64 wake;
+
+        /*
+         * A clock that steps backwards -- set by hand, or by NTP
+         * correcting a fast clock -- would leave every deadline in the
+         * future by the size of the step. Collect and send now instead.
+         */
+        now = vo_time_mono_ms();
+        if (now + 1000 < last_now) {
+            vo_log("clock went back %llu s; collecting now",
+                   (last_now - now) / 1000);
+            next_collect = next_send = now;
+            if (drain_until != 0)
+                drain_until = now + (vo_u64) drain_s * 1000;
+        }
+        last_now = now;
 
         if (stop_requested()) {
             vo_log("stop requested");

@@ -43,7 +43,9 @@ void vo_net_close(vo_conn *c);
 vo_u64 vo_time_utc_ns(void);
 
 /* A clock for intervals, in milliseconds from an arbitrary origin. It
-   must not jump when the wall clock is set. */
+   should not jump when the wall clock is set; on VMS, where it is
+   time(), it does, so the agent treats a backward step as "now". It
+   must never follow local time, which jumps at summer time. */
 vo_u64 vo_time_mono_ms(void);
 
 /* An interval clock as fine as the system offers, in nanoseconds, for

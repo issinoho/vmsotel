@@ -49,7 +49,7 @@ VMS_SRC_CFLAGS = $(VMSISH) $(AGENT_INC)
 TESTS = $(B)/test_model $(B)/test_otlp $(B)/test_transport
 GOLDEN = tests/golden/full.json tests/golden/minimal.json
 
-ALL = $(PROBES) $(TESTS) $(AGENTS)
+ALL = $(PROBES) $(TESTS) $(AGENTS) $(B)/clockjump.so
 
 all: $(ALL)
 
@@ -106,6 +106,11 @@ $(B)/vmsotel_tls: $(B)/agent_tls.o $(B)/http_tls.o $(B)/tls.o $(CORE_OBJ)
 VMS_CORE_OBJ = $(filter-out $(B)/fake_source.o,$(CORE_OBJ)) $(B)/vms_source.o
 $(B)/vmsotel_vmsstub: $(B)/agent.o $(B)/http.o $(VMS_CORE_OBJ) $(B)/vmsstub.o
 	$(CC) -o $@ $^
+
+# Test-only: makes CLOCK_MONOTONIC step back an hour, for the agent
+# self-test. Linux and glibc; not part of the agent, not strict C99.
+$(B)/clockjump.so: tests/clockjump.c | $(B)
+	$(CC) -shared -fPIC -o $@ $< -ldl
 
 $(B)/fixture.o: tests/fixture.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<

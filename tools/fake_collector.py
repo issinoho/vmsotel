@@ -346,6 +346,21 @@ def agent_selftest(plain, tls, vmsstub=None):
               b'"asInt":"1414660096"' in sent and
               b"system.cpu.time" in sent and b'"lef"' in sent, out)
 
+    # The clock stepping back an hour mid-run (tests/clockjump.c): what
+    # VMS's local-time clock does when summer time ends. Without the
+    # agent's guard it stalls for the hour.
+    jump = os.path.join(os.path.dirname(os.path.abspath(plain)), "clockjump.so")
+    if os.path.exists(jump):
+        reset()
+        env = dict(os.environ, LD_PRELOAD=jump, CLOCKJUMP_AFTER="3")
+        rc, out = run(plain, conf(port).replace("interval = 1", "interval = 2"),
+                      5, env=env, timeout=40)
+        check("clock steps back an hour: agent notices and keeps collecting",
+              rc == 0 and len(accepted()) == 5 and
+              "clock went back 35" in out, out)
+    else:
+        print("note  build/clockjump.so missing: clock-step case skipped")
+
     # Stopping: the stop file, and SIGTERM, each followed by a final
     # send and a summary in the --log file.
     def stopped_run(image, conf_text, how, after=2.5, env=None):
