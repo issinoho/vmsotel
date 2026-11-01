@@ -25,7 +25,8 @@ typedef struct {
     long retry_after_s;         /* -1 if the response gave none */
     int have_date;
     long long date_unix;        /* the collector's Date header */
-    long long rejected;         /* partialSuccess.rejectedDataPoints, -1 if absent */
+    long long rejected;         /* partialSuccess.rejectedDataPoints or
+                                   rejectedLogRecords, -1 if absent */
     char message[160];          /* errorMessage, or the transport error */
     char tls_info[96];          /* protocol and cipher, when TLS */
 } vo_http_result;

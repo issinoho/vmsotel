@@ -245,6 +245,12 @@ static int system_tdf(long long *tdf, char *err, size_t errcap)
     return 1;
 }
 
+/* For the log source (vms_logs.c), whose files are in local time. */
+int vo_vms_system_tdf(long long *tdf, char *err, size_t errcap)
+{
+    return system_tdf(tdf, err, errcap);
+}
+
 /*
  * The startup check from docs/design.md, "Time": time() must agree with
  * $GETTIM less the system's differential. If it does not, the timezone

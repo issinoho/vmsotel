@@ -381,6 +381,7 @@ int sys$getdviw(unsigned int efn, unsigned short chan, void *devnam,
  */
 struct FAB cc$rms_fab;
 struct RAB cc$rms_rab;
+struct NAM cc$rms_nam;
 
 #define STUB_OPLOG   "build/stub_operator.log"
 #define STUB_JOURNAL "build/stub_audit.journal"
@@ -429,31 +430,79 @@ static void make_samples(void)
     }
 }
 
+/*
+ * Versions: ;1 of each file is its base name under build/, ;N for a
+ * higher N the base name with ".N" after it. A name without a version
+ * is the highest that exists, as on VMS.
+ */
+static void version_path(char *out, const char *base, int v)
+{
+    if (v <= 1)
+        strcpy(out, base);
+    else
+        sprintf(out, "%s.%d", base, v);
+}
+
+static int highest_version(const char *base)
+{
+    char path[300];
+    FILE *f;
+    int v, hi = 0;
+
+    for (v = 1; v <= 64; v++) {
+        version_path(path, base, v);
+        if ((f = fopen(path, "r")) != NULL) {
+            fclose(f);
+            hi = v;
+        }
+    }
+    return hi;
+}
+
 int sys$open(void *fabp)
 {
     struct FAB *fab = fabp;
-    char name[256];
+    char name[256], path[300];
+    const char *base, *shown, *semi;
     FILE *fp;
+    int v;
 
     memcpy(name, fab->fab$l_fna, fab->fab$b_fns);
     name[fab->fab$b_fns] = '\0';
     make_samples();
     if (strstr(name, "OPERATOR.LOG") != NULL) {
         fab->stub_kind = 1;
-        fp = fopen(STUB_OPLOG, "r");
-        fab->fab$b_rfm = FAB$C_VAR;
-        fab->fab$w_mrs = 0;
+        base = STUB_OPLOG;
+        shown = "STUBBY$DKA0:[SYS0.SYSMGR]OPERATOR.LOG";
     } else if (strstr(name, "AUDIT$JOURNAL") != NULL) {
         fab->stub_kind = 2;
-        fp = fopen(STUB_JOURNAL, "rb");
-        fab->fab$b_rfm = FAB$C_VAR;
-        fab->fab$w_mrs = 0;
+        base = STUB_JOURNAL;
+        shown = "STUBBY$DKA0:[SYS0.SYSCOMMON.SYSMGR]SECURITY.AUDIT$JOURNAL";
     } else {
         return RMS$_FNF;
     }
+    semi = strchr(name, ';');
+    v = semi != NULL ? atoi(semi + 1) : highest_version(base);
+    if (v < 1)
+        return RMS$_FNF;
+    version_path(path, base, v);
+    fp = fopen(path, fab->stub_kind == 1 ? "r" : "rb");
     if (fp == NULL)
         return RMS$_FNF;
+    fab->fab$b_rfm = FAB$C_VAR;
+    fab->fab$w_mrs = 0;
     fab->stub_fp = fp;
+    if (fab->fab$l_nam != NULL && fab->fab$l_nam->nam$l_rsa != NULL) {
+        char rsa[300];
+        size_t n;
+
+        sprintf(rsa, "%s;%d", shown, v);
+        n = strlen(rsa);
+        if (n > fab->fab$l_nam->nam$b_rss)
+            n = fab->fab$l_nam->nam$b_rss;
+        memcpy(fab->fab$l_nam->nam$l_rsa, rsa, n);
+        fab->fab$l_nam->nam$b_rsl = (unsigned char) n;
+    }
     return RMS$_NORMAL;
 }
 
@@ -528,7 +577,11 @@ int sys$close(void *fabp)
 
 void probe_stub_request(const char *text)
 {
-    FILE *f = fopen(STUB_OPLOG, "a");
+    char path[300];
+    FILE *f;
+
+    version_path(path, STUB_OPLOG, highest_version(STUB_OPLOG));
+    f = fopen(path, "a");
 
     if (f == NULL)
         return;

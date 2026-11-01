@@ -13,6 +13,9 @@ void vo_config_defaults(vo_config *c)
     memset(c, 0, sizeof *c);
     strcpy(c->port, "4318");
     strcpy(c->path, "/v1/metrics");
+    strcpy(c->logs_path, "/v1/logs");
+    strcpy(c->logs_opcom_file, "SYS$MANAGER:OPERATOR.LOG");
+    strcpy(c->logs_audit_file, "SYS$MANAGER:SECURITY.AUDIT$JOURNAL");
     c->interval_s = 60;
     c->timeout_s = 10;
     c->queue_len = 10;
@@ -114,6 +117,19 @@ int vo_config_parse(vo_config *c, const char *text, char *err, size_t errcap)
                  copy(c->port, sizeof c->port, val, vl);
         else if (KEY("path"))
             ok = vl > 0 && val[0] == '/' && copy(c->path, sizeof c->path, val, vl);
+        else if (KEY("logs.path"))
+            ok = vl > 0 && val[0] == '/' &&
+                 copy(c->logs_path, sizeof c->logs_path, val, vl);
+        else if (KEY("logs.opcom"))
+            ok = boolean(val, vl, &c->logs_opcom);
+        else if (KEY("logs.audit"))
+            ok = boolean(val, vl, &c->logs_audit);
+        else if (KEY("logs.opcom_file"))
+            ok = vl > 0 && copy(c->logs_opcom_file, sizeof c->logs_opcom_file,
+                                val, vl);
+        else if (KEY("logs.audit_file"))
+            ok = vl > 0 && copy(c->logs_audit_file, sizeof c->logs_audit_file,
+                                val, vl);
         else if (KEY("tls"))
             ok = boolean(val, vl, &c->tls);
         else if (KEY("cafile"))

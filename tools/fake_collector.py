@@ -113,9 +113,8 @@ class State:
     # Responses to give, in order, before falling back to `status`:
     # (status, Retry-After or None, body or None).
     script = []
-    # Every request: (monotonic time, status sent, valid, body bytes).
+    # Every request: (monotonic time, status sent, valid, body bytes, path).
     seen = []
-    logs = []                # the body of every /v1/logs request
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -149,9 +148,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             status, retry_after, reply = State.script.pop(0)
         else:
             status = State.status
-        State.seen.append((time.monotonic(), status, result[0], body))
-        if self.path == "/v1/logs":
-            State.logs.append(body)
+        State.seen.append((time.monotonic(), status, result[0], body,
+                           self.path))
         if reply is None:
             reply = b"{}" if status == 200 else json.dumps(
                 {"code": 3, "message": result[1]}).encode()
@@ -255,6 +253,33 @@ def free_port():
     return port
 
 
+STUB_OPLOG = os.path.join("build", "stub_operator.log")
+STUB_JOURNAL = os.path.join("build", "stub_audit.journal")
+
+
+def stub_message(when, *lines):
+    """An OPCOM message as the operator log holds it: an empty record,
+    the header, the lines (findings 34)."""
+    return ("\n%%%%%%%%%%%  OPCOM  " + when + "  %%%%%%%%%%%\n" +
+            "".join(l + "\n" for l in lines))
+
+
+def stub_logfail(user, vms_time):
+    """A LOGFAIL journal record in NSAMSGDEF, length-prefixed as the
+    stub's journal stores records."""
+    def pkt(kind, data):
+        return (len(data) + 4).to_bytes(2, "little") + \
+            kind.to_bytes(2, "little") + data
+    body = (pkt(6, b"SECURITY") + pkt(45, user.encode()) +
+            pkt(44, b"SSH_PASSWORD:192.0.2.77") +
+            pkt(50, vms_time.to_bytes(8, "little")))
+    size = 20 + len(body)
+    hdr = (bytes([5, 0, 5, 0, 0x1c, 0, 4, 0]) + size.to_bytes(2, "little") +
+           bytes([0, 3]) + bytes(8))
+    rec = hdr + body
+    return len(rec).to_bytes(2, "little") + rec
+
+
 def agent_selftest(plain, tls, vmsstub=None):
     """Runs the agent images against this collector. Each case states
     what must happen at both ends: the agent's exit status and log, and
@@ -287,8 +312,90 @@ def agent_selftest(plain, tls, vmsstub=None):
         State.date_offset = offset
         State.seen = []
 
-    def accepted():
-        return [s for s in State.seen if s[1] == 200 and s[2]]
+    def accepted(path=None):
+        return [s for s in State.seen if s[1] == 200 and s[2] and
+                (path is None or s[4] == path)]
+
+    def log_records():
+        """Every log record the collector took, in arrival order."""
+        out = []
+        for s in accepted("/v1/logs"):
+            for rl in json.loads(s[3])["resourceLogs"]:
+                for sl in rl["scopeLogs"]:
+                    out.extend(sl["logRecords"])
+        return out
+
+    def numbered(recs):
+        """The fake log source's sequence numbers, in arrival order."""
+        nums = []
+        for r in recs:
+            m = re.search(r"fake operator message (\d+)|user U(\d+) ",
+                          r["body"]["stringValue"])
+            nums.append(int(m.group(1) or m.group(2)) if m else -1)
+        return nums
+
+    def contiguous(nums):
+        return len(nums) > 0 and nums == list(range(1, len(nums) + 1))
+
+    def logs_case(image, port):
+        """The VMS log source against the stub's files, written to while
+        the agent runs: what was there before is not sent; each new
+        message and journal record arrives once; the last message, with
+        nothing after it, goes once it has been unchanged for a read; a
+        new version of the log is followed from its start."""
+        for base in (STUB_OPLOG, STUB_JOURNAL):
+            for v in [""] + [f".{i}" for i in range(2, 10)]:
+                if os.path.exists(base + v):
+                    os.unlink(base + v)
+        vms = lambda unix_s: unix_s * 10_000_000 + 35067168000000000
+
+        def writer():
+            time.sleep(2.2)
+            with open(STUB_OPLOG, "a") as f:
+                f.write(stub_message("1-NOV-2026 11:00:01.50",
+                                     "Message from user SYSTEM on STUBBY",
+                                     "%SYSTEM-W-TEST, first new message") +
+                        stub_message("1-NOV-2026 11:00:02.00",
+                                     "Message from user IAIN on STUBBY",
+                                     "second new message"))
+            with open(STUB_JOURNAL, "ab") as f:
+                f.write(stub_logfail("ROOT", vms(1793530000)) +
+                        stub_logfail("USER", vms(1793530001)))
+            time.sleep(3.0)
+            with open(STUB_OPLOG + ".2", "w") as f:
+                f.write(stub_message("1-NOV-2026 11:00:09.00",
+                                     "Logfile has been initialized",
+                                     "third message, in version 2"))
+        reset()
+        th = threading.Thread(target=writer)
+        th.start()
+        rc, out = run(image, conf(port, "logs.opcom = yes\n"
+                                        "logs.audit = yes\n"), 11, drain=4)
+        th.join()
+        recs = log_records()
+        bodies = [r["body"]["stringValue"] for r in recs]
+        want = ["Message from user SYSTEM on STUBBY\n"
+                "%SYSTEM-W-TEST, first new message",
+                "Message from user IAIN on STUBBY\nsecond new message",
+                "Login failure: user ROOT from SSH_PASSWORD:192.0.2.77",
+                "Login failure: user USER from SSH_PASSWORD:192.0.2.77",
+                "Logfile has been initialized\nthird message, in version 2"]
+        files = [next((a["value"]["stringValue"] for a in r["attributes"]
+                       if a["key"] == "log.file.path"), "") for r in recs]
+        check("logs, VMS source (stub): starts at the end, each new message "
+              "and journal record once, the last message once it settles, "
+              "version ;2 followed",
+              rc == 0 and sorted(bodies) == sorted(want) and
+              bodies.index(want[0]) < bodies.index(want[1]) and
+              recs[bodies.index(want[0])]["severityText"] == "WARN" and
+              recs[bodies.index(want[0])]["timeUnixNano"] ==
+              "1793530801500000000" and
+              recs[bodies.index(want[2])]["timeUnixNano"] ==
+              "1793530000000000000" and
+              files[bodies.index(want[4])].endswith("OPERATOR.LOG;2") and
+              "starting at the end of STUBBY$DKA0:[SYS0.SYSMGR]OPERATOR.LOG;1"
+              in out and "now reading STUBBY$DKA0:[SYS0.SYSMGR]OPERATOR.LOG;2"
+              in out, out + "\n" + "\n---\n".join(bodies))
 
     def conf(port, extra=""):
         return f"host = 127.0.0.1\nport = {port}\ninterval = 1\n" + extra
@@ -360,6 +467,49 @@ def agent_selftest(plain, tls, vmsstub=None):
           rc == 0 and len(State.seen) == 0 and
           "more than max_payload 4096; dropped -- raise max_payload" in out,
           out)
+    # Phase 3 through the fake log source: a burst of 150 waiting (more
+    # than one 64-record read), then one a second. Every record must
+    # arrive once, in order, beside the metrics.
+    logs_on = "logs.opcom = yes\nlogs.audit = yes\n"
+    reset()
+    env = dict(os.environ, VMSOTEL_FAKE_LOG_BURST="150")
+    rc, out = run(plain, conf(port, logs_on), 4, env=env)
+    recs = log_records()
+    nums = numbered(recs)
+    check(f"logs: a burst of 150 then one a second -- {len(nums)} records, "
+          "each once and in order, on /v1/logs beside 4 metrics exports",
+          rc == 0 and len(accepted("/v1/metrics")) == 4 and
+          contiguous(nums) and len(nums) >= 150 and
+          all(r.get("timeUnixNano") for r in recs) and
+          any(r["severityText"] == "WARN" and r["severityNumber"] == 13
+              for r in recs) and
+          "logs: fake logs: 150 waiting" in out and
+          f"log records: {len(nums)} queued, 0 too large" in out, out)
+
+    reset()
+    env = dict(os.environ, VMSOTEL_FAKE_LOG_BURST="60")
+    rc, out = run(plain, conf(port, logs_on + "max_payload = 4096\n"), 2,
+                  env=env)
+    nums = numbered(log_records())
+    sizes = [len(s[3]) for s in accepted("/v1/logs")]
+    check(f"logs: max_payload 4096 -- {len(sizes)} log payloads, none "
+          "larger, no record lost",
+          rc == 0 and len(sizes) > 2 and max(sizes) <= 4096 and
+          contiguous(nums) and len(nums) >= 60, out)
+
+    reset()
+    env = dict(os.environ, VMSOTEL_FAKE_LOG_FAIL="1",
+               VMSOTEL_FAKE_LOG_BURST="4")
+    rc, out = run(plain, conf(port, logs_on), 3, env=env)
+    recs = log_records()
+    check("logs: the journal unreadable -- said once, operator messages "
+          "still sent",
+          rc == 0 and out.count("logs: cannot read SYS$MANAGER:SECURITY."
+                                "AUDIT$JOURNAL: fake: no privilege") == 1 and
+          len(recs) >= 4 and contiguous(numbered(recs)) and
+          not any("Login failure" in r["body"]["stringValue"] for r in recs),
+          out)
+
     if vmsstub:
         # The VMS source against the stub: the disks it must skip
         # (shadow member DKA100, unmounted DQA0, memory disk LDM9) are
@@ -394,6 +544,8 @@ def agent_selftest(plain, tls, vmsstub=None):
               b"process.cpu.time" in sent and b"AUDIT_SERVER" not in sent
               and out.count("could not be read (no WORLD privilege?)") == 1,
               out)
+
+        logs_case(vmsstub, port)
 
     # The clock stepping back an hour mid-run (tests/clockjump.c): what
     # VMS's local-time clock does when summer time ends. Without the
@@ -451,7 +603,8 @@ def agent_selftest(plain, tls, vmsstub=None):
     down = free_port()
     rc, out = run(plain, conf(down, "queue = 2\n"), 4, drain=2)
     check("collector down: bounded queue drops the oldest, agent gives up",
-          rc != 0 and out.count("queue full (2); oldest payload dropped") == 2
+          rc != 0 and out.count("queue full (2); oldest metrics payload "
+                                "dropped") == 2
           and "Connection refused" in out and
           "stopping with 2 payloads unsent" in out, out)
 
@@ -469,6 +622,30 @@ def agent_selftest(plain, tls, vmsstub=None):
     if late:
         late[0].shutdown()
         late[0].server_close()
+
+    # The same with logs and a backlog bigger than the queue: what could
+    # not be queued stays in the file, uncommitted, and comes later.
+    later = free_port()
+    reset()
+    State.late = None
+    timer = threading.Timer(3.5, lambda: State.__setattr__(
+        "late", start(port=later)))
+    timer.start()
+    env = dict(os.environ, VMSOTEL_FAKE_LOG_BURST="300")
+    rc, out = run(plain, conf(later, "logs.opcom = yes\nlogs.audit = yes\n"
+                              "max_payload = 16384\n"), 8, drain=20, env=env)
+    timer.join()
+    nums = numbered(log_records())
+    full = out.count("queue full (10); oldest metrics payload dropped")
+    check(f"logs, collector starts late with 300 waiting: {len(nums)} "
+          f"records, each once and in order; the queue filled and dropped "
+          f"{full} metrics payloads, no logs",
+          rc == 0 and contiguous(nums) and len(nums) >= 300 and full >= 1 and
+          "oldest logs payload" not in out and
+          len(accepted("/v1/metrics")) + full == 8, out)
+    if State.late:
+        State.late[0].shutdown()
+        State.late[0].server_close()
 
     nowhere = free_port()
     rc, log, left, out = stopped_run(plain, conf(nowhere), "file", after=3.5)

@@ -16,8 +16,12 @@ $! RUN/DETACHED of LOGINOUT, so that the process has DCL and can be
 $! given arguments, with NETMBX and TMPMBX: the system metrics need no
 $! privilege (docs/findings.md). WORLD is added only when VMSOTEL.CONF
 $! asks for per-process metrics (process.name or process.user), since
-$! without it a process scan sees only the agent's own account's. It
-$! runs as the UIC that starts it -- SYSTEM, from SYSTARTUP_VMS.COM.
+$! without it a process scan sees only the agent's own account's.
+$! READALL is added only when it asks for logs (logs.opcom or
+$! logs.audit = yes): the operator log and the audit journal are
+$! SYSTEM's, (RWED,RWED,RE,), and cannot be opened without it (findings
+$! 33, 36). It runs as the UIC that starts it -- SYSTEM, from
+$! SYSTARTUP_VMS.COM.
 $!
 $! It does not restart itself. An agent that came back silently after
 $! failing would hide the failure; VMSOTEL.LOG says why it stopped.
@@ -69,19 +73,30 @@ $! once.
 $ if f$search(root + "VMSOTEL.STOP") .nes. "" then -
       delete/nolog 'root'VMSOTEL.STOP;*
 $!
-$! A line that begins "process." -- after any spaces, and not a
-$! comment -- asks for it. Read line by line rather than SEARCHed, so
-$! that a commented-out example does not grant WORLD.
+$! WORLD for a line that begins "process."; READALL for "logs.opcom"
+$! or "logs.audit" set to yes (or true, on, 1) -- after any spaces, and
+$! not a comment. Read line by line rather than SEARCHed, so that a
+$! commented-out example grants nothing.
 $ privs = "NOSAME,NETMBX,TMPMBX"
+$ want_world = 0
+$ want_readall = 0
 $ open/read/error=privs_done cf 'root'VMSOTEL.CONF
 $ privs_loop:
 $   read/end_of_file=privs_close cf line
-$   line = f$edit(line, "TRIM,UPCASE")
-$   if f$extract(0, 8, line) .nes. "PROCESS." then goto privs_loop
-$   privs = privs + ",WORLD"
+$   line = f$edit(line, "COLLAPSE,UPCASE")
+$   if f$extract(0, 8, line) .eqs. "PROCESS." then want_world = 1
+$   key = f$extract(0, 11, line)
+$   if key .nes. "LOGS.OPCOM=" .and. key .nes. "LOGS.AUDIT=" then -
+        goto privs_loop
+$   val = f$extract(11, 8, line)
+$   if val .eqs. "YES" .or. val .eqs. "TRUE" .or. val .eqs. "ON" .or. -
+       val .eqs. "1" then want_readall = 1
+$   goto privs_loop
 $ privs_close:
 $ close cf
 $ privs_done:
+$ if want_world then privs = privs + ",WORLD"
+$ if want_readall then privs = privs + ",READALL"
 $!
 $! Quotas are stated rather than left to the PQL defaults: the queue is
 $! allocated at start (10 exports of 128 KB by default), and TCP and

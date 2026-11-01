@@ -6,8 +6,10 @@
  *     vmsotel --selftest
  *
  * Every interval it reads the source, updates the model, encodes a
- * payload and queues it; between collections it sends the queue,
- * oldest first. A failed send keeps the payload and backs off,
+ * payload and queues it; with logs.* on (phase 3) it then reads what
+ * the operator log and audit journal have gained, and queues that as
+ * log payloads too. Between collections it sends the queue, oldest
+ * first, metrics to path and logs to logs.path. A failed send keeps the payload and backs off,
  * doubling from one second up to the interval, or longer if the
  * collector's Retry-After asks. A rejected payload is dropped and
  * logged loudly, since sending it again cannot help.
@@ -41,6 +43,7 @@
 
 #include "config.h"
 #include "http.h"
+#include "logsource.h"
 #include "model.h"
 #include "otlp_json.h"
 #include "platform.h"
@@ -54,6 +57,11 @@
 #define MAX_BACKOFF_MS  3600000ULL      /* Retry-After is honoured up to here */
 #define SKEW_WARN_S     2               /* the probes' threshold */
 #define CONFIG_MAX      65536
+#define LOG_BATCH       64              /* log records read at a time */
+#define LOG_ROUNDS      64              /* batches read per collection */
+
+/* What a queued payload is, and so where it goes. */
+enum { Q_METRICS, Q_LOGS };
 
 static const char *log_path;
 static const char *stop_path;
@@ -160,7 +168,89 @@ typedef struct {
     int skew_warned;
     int stopping;               /* the last attempt: nothing is retried */
     int procs_warned;
+
+    /* Phase 3 */
+    vo_logs_config logs;
+    int logs_on;
+    char logs_err[400];         /* the last read failure logged */
+    vo_u64 log_records;         /* queued for sending */
+    vo_u64 log_records_dropped; /* too large for max_payload */
 } agent;
+
+static vo_log_rec log_recs[LOG_BATCH];
+
+/*
+ * Room in the queue for one more log payload. Two slots are kept free
+ * -- one for the next metrics, one to spare -- so a burst of audit
+ * events cannot push metrics out; a queue too small for that keeps
+ * none back.
+ */
+static int logs_room(const agent *a)
+{
+    unsigned reserve = a->queue.nslots >= 4 ? 2 : 0;
+
+    return a->queue.nslots - a->queue.count > reserve;
+}
+
+/*
+ * Phase 3: what the logs have gained since the last commit, as log
+ * payloads, while logs_room() allows. Whatever does not fit stays
+ * uncommitted in the file and is read again next time. A failure to
+ * read is logged when it starts, changes or ends, not every interval.
+ */
+static void collect_logs(agent *a)
+{
+    char msg[400];
+    size_t n, i, used, len;
+    int more, ok, round, rc;
+
+    for (round = 0; round < LOG_ROUNDS; round++) {
+        if (!logs_room(a))
+            break;
+        n = 0;
+        more = 0;
+        ok = vo_logs_read(log_recs, LOG_BATCH, &n, &more, msg, sizeof msg);
+        if (!ok) {
+            if (strcmp(msg, a->logs_err) != 0)
+                vo_log("logs: %s", msg);
+            strcpy(a->logs_err, msg);
+        } else {
+            if (a->logs_err[0] != '\0')
+                vo_log("logs: readable again");
+            a->logs_err[0] = '\0';
+            if (msg[0] != '\0')
+                vo_log("logs: %s", msg);
+        }
+        if (n == 0)
+            break;
+
+        i = 0;
+        while (i < n && logs_room(a)) {
+            rc = vo_otlp_encode_logs(&a->res, log_recs + i, n - i,
+                                     vo_time_utc_ns(), a->payload,
+                                     a->cfg.max_payload, &len, &used);
+            if (rc != VO_OK) {
+                a->log_records_dropped++;
+                vo_log("a log record needs %lu bytes, more than max_payload "
+                       "%lu; dropped", (unsigned long) len,
+                       a->cfg.max_payload);
+                i++;
+                continue;
+            }
+            if (vo_queue_push(&a->queue, a->payload, len, Q_LOGS) == 1) {
+                a->stats.exports_dropped++;
+                vo_log("queue full (%u); oldest %s payload dropped",
+                       a->queue.nslots,
+                       a->queue.dropped_kind == Q_LOGS ? "logs" : "metrics");
+            }
+            a->log_records += used;
+            i += used;
+        }
+        vo_logs_commit(i);
+        if (i < n || !more)
+            break;
+    }
+}
 
 static void collect(agent *a)
 {
@@ -209,10 +299,11 @@ static void collect(agent *a)
                a->cfg.max_payload);
         return;
     }
-    dropped = vo_queue_push(&a->queue, a->payload, len);
+    dropped = vo_queue_push(&a->queue, a->payload, len, Q_METRICS);
     if (dropped == 1) {
         a->stats.exports_dropped++;
-        vo_log("queue full (%u); oldest payload dropped", a->queue.nslots);
+        vo_log("queue full (%u); oldest %s payload dropped", a->queue.nslots,
+               a->queue.dropped_kind == Q_LOGS ? "logs" : "metrics");
     }
 }
 
@@ -222,11 +313,13 @@ static int send_one(agent *a)
     vo_http_result r;
     vo_u64 sent_at;
     size_t len;
-    const char *p = vo_queue_peek(&a->queue, &len);
+    int kind = Q_METRICS;
+    const char *p = vo_queue_peek(&a->queue, &len, &kind);
     int outcome;
 
     if (p == NULL)
         return 0;
+    a->target.path = kind == Q_LOGS ? a->cfg.logs_path : a->cfg.path;
     sent_at = vo_time_utc_ns() / 1000000000ULL;
     outcome = vo_http_post(&a->target, p, len, &r);
     if (r.have_date) {
@@ -252,8 +345,9 @@ static int send_one(agent *a)
         a->stats.exports_sent++;
         a->backoff_ms = 0;
         if (r.rejected > 0)
-            vo_log("collector accepted the export but rejected %lld data "
-                   "points: %s", r.rejected, r.message);
+            vo_log("collector accepted the export but rejected %lld %s: %s",
+                   r.rejected, kind == Q_LOGS ? "log records" : "data points",
+                   r.message);
         return 1;
     }
     if (outcome == VO_HTTP_REJECTED) {
@@ -310,6 +404,9 @@ static void finish(agent *a, unsigned long done)
     vo_log("stopped: %lu collections, %llu sent, %llu failed attempts, "
            "%llu dropped", done, a->stats.exports_sent,
            a->stats.exports_failed, a->stats.exports_dropped);
+    if (a->logs_on)
+        vo_log("log records: %llu queued, %llu too large", a->log_records,
+               a->log_records_dropped);
 }
 
 int main(int argc, char **argv)
@@ -366,6 +463,7 @@ int main(int argc, char **argv)
                a.cfg.max_payload);
         return EXIT_FAILURE;
     }
+    vo_queue_drop_first(&a.queue, Q_METRICS);
     a.payload = malloc(a.cfg.max_payload);
     if (a.payload == NULL) {
         vo_log("cannot allocate %lu bytes for a payload", a.cfg.max_payload);
@@ -394,6 +492,17 @@ int main(int argc, char **argv)
 #endif
     if (stop_path != NULL)
         vo_log("to stop: create %s", stop_path);
+    a.logs.opcom = a.cfg.logs_opcom;
+    a.logs.audit = a.cfg.logs_audit;
+    a.logs.opcom_file = a.cfg.logs_opcom_file;
+    a.logs.audit_file = a.cfg.logs_audit_file;
+    a.logs_on = a.logs.opcom || a.logs.audit;
+    vo_logs_open(&a.logs);
+    if (a.logs_on)
+        vo_log("logs to %s: %s%s%s; they need READALL", a.cfg.logs_path,
+               a.logs.opcom ? a.logs.opcom_file : "",
+               a.logs.opcom && a.logs.audit ? ", " : "",
+               a.logs.audit ? a.logs.audit_file : "");
     if (vo_proc_filter_active(&a.cfg.procs))
         vo_log("per-process metrics for %lu name and %lu user pattern%s; "
                "other accounts' processes need WORLD",
@@ -428,6 +537,8 @@ int main(int argc, char **argv)
         now = vo_time_mono_ms();
         if ((cycles == 0 || done < cycles) && now >= next_collect) {
             collect(&a);
+            if (a.logs_on)
+                collect_logs(&a);
             done++;
             next_collect += a.interval_ms;
             if (next_collect <= now)                /* fell behind */
@@ -449,6 +560,9 @@ int main(int argc, char **argv)
                        "attempts, %llu dropped", done,
                        a.stats.exports_sent, a.stats.exports_failed,
                        a.stats.exports_dropped);
+                if (a.logs_on)
+                    vo_log("log records: %llu queued, %llu too large",
+                           a.log_records, a.log_records_dropped);
                 return EXIT_SUCCESS;
             }
             if (now >= drain_until) {

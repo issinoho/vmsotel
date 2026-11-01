@@ -202,6 +202,8 @@ int vo_http_parse_response(const char *resp, size_t n, vo_http_result *res)
     }
 
     json_int(body, body_len, "rejectedDataPoints", &res->rejected);
+    if (res->rejected < 0)      /* a logs request's partialSuccess */
+        json_int(body, body_len, "rejectedLogRecords", &res->rejected);
     json_str(body, body_len, "errorMessage", res->message,
              sizeof res->message);
     if (res->message[0] == '\0')

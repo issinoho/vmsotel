@@ -23,8 +23,16 @@ Phase 2, per-process metrics for processes chosen by name or user
 (`process.name`, `process.user`; WORLD), has run on both machines: the
 collector's per-process CPU and memory equal SHOW SYSTEM exactly
 (findings 32). It rested on findings 11, 12 and 31; nothing new needed
-probing. Next in docs/design.md, "Phases": 3, logs (OPCOM and audit),
-which needs its own probes.
+probing.
+
+Phase 3, the operator log and the audit journal as OTLP logs
+(`logs.opcom`, `logs.audit`; READALL), is built and tested here but
+has not run on VMS. Its probes (findings 33–38) are answered on both
+machines; `docs/design.md`, "Phases", says what they decided. The
+parsers are pure (`src/model/logparse.c`, tested on real records from
+both machines); the reader is `src/sources/vms/vms_logs.c`, run here
+against the stub's files, which the agent self-test writes to while
+the agent reads them.
 
 ## Where it lives
 

@@ -90,6 +90,9 @@ $ gosub compile
 $ cobj = "vms_source"
 $ csrc = "[.src.sources.vms]vms_source.c"
 $ gosub compile
+$ cobj = "vms_logs"
+$ csrc = "[.src.sources.vms]vms_logs.c"
+$ gosub compile
 $! _SOCKADDR_LEN selects the BSD 4.4 socket structures getaddrinfo needs.
 $ cobj = "platform_posix"
 $ csrc = "[.src.platform]platform_posix.c"
@@ -99,7 +102,8 @@ $ cflags = ""
 $!
 $ core = "[.build]model.obj,[.build]procfilter.obj,[.build]logparse.obj," + -
          "[.build]otlp_json.obj,[.build]platform_posix.obj," + -
-         "[.build]queue.obj,[.build]config.obj,[.build]vms_source.obj"
+         "[.build]queue.obj,[.build]config.obj,[.build]vms_source.obj," + -
+         "[.build]vms_logs.obj"
 $ if failed .nes. "" then goto summary
 $!
 $!---------------------------------------------------------------------
@@ -312,7 +316,7 @@ $ clean:
 $ if f$search("[.build]vmsotel*.exe") .nes. "" then -
       delete/nolog [.build]vmsotel*.exe;*
 $ agent_objs = "model,procfilter,logparse,otlp_json,platform_posix,queue,config,http," + -
-               "agent,vms_source,http_tls,agent_tls,tls"
+               "agent,vms_source,vms_logs,http_tls,agent_tls,tls"
 $ i = 0
 $ clean_loop:
 $   o = f$element(i, ",", agent_objs)

@@ -40,12 +40,13 @@ OPT = [.build]vmsotel_ssl.opt
 CORE_OBJS = [.build]model.obj,[.build]procfilter.obj,[.build]logparse.obj,-
 [.build]otlp_json.obj,-
 [.build]platform_posix.obj,[.build]queue.obj,[.build]config.obj,-
-[.build]vms_source.obj
+[.build]vms_source.obj,[.build]vms_logs.obj
 
 HEADERS = [.src.model]model.h,[.src.model]vo_types.h,[.src.model]version.h,-
 [.src.model]procfilter.h,[.src.model]logparse.h,-
 [.src.otlp]otlp_json.h,[.src.platform]platform.h,[.src.transport]http.h,-
 [.src.transport]tls.h,[.src.transport]queue.h,[.src.sources]source.h,-
+[.src.sources]logsource.h,-
 [.src.agent]config.h
 
 ! [.build] must exist before the first compile, and OPENSSL must name
@@ -88,6 +89,9 @@ ALL : [.build]vmsotel.exe, [.build]vmsotel_tls.exe
 
 [.build]vms_source.obj : [.src.sources.vms]vms_source.c, $(HEADERS)
     $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.sources.vms]vms_source.c
+
+[.build]vms_logs.obj : [.src.sources.vms]vms_logs.c, $(HEADERS)
+    $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.sources.vms]vms_logs.c
 
 [.build]http.obj : [.src.transport]http.c, $(HEADERS)
     $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.transport]http.c
@@ -152,6 +156,7 @@ CLEAN :
     @- IF F$SEARCH("[.build]queue.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]queue.obj;*
     @- IF F$SEARCH("[.build]config.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]config.obj;*
     @- IF F$SEARCH("[.build]vms_source.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]vms_source.obj;*
+    @- IF F$SEARCH("[.build]vms_logs.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]vms_logs.obj;*
     @- IF F$SEARCH("[.build]http*.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]http*.obj;*
     @- IF F$SEARCH("[.build]agent*.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]agent*.obj;*
     @- IF F$SEARCH("[.build]tls.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]tls.obj;*

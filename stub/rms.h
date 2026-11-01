@@ -1,13 +1,21 @@
 /*
- * Linux stub of the RMS structures probe_logs uses: only those fields,
- * with arbitrary codes. The stub's sys$open maps the operator log and
- * the audit journal to files under build/ and makes them if missing.
+ * Linux stub of the RMS structures probe_logs and vms_logs.c use: only
+ * those fields, with arbitrary codes. The stub's sys$open maps the
+ * operator log and the audit journal to files under build/ and makes
+ * them if missing; version ;N of each is its own file.
  */
 #ifndef STUB_RMS_H
 #define STUB_RMS_H
 
+struct NAM {
+    char *nam$l_rsa;
+    unsigned char nam$b_rss;
+    unsigned char nam$b_rsl;
+};
+
 struct FAB {
     char *fab$l_fna;
+    struct NAM *fab$l_nam;
     unsigned char fab$b_fns;
     unsigned char fab$b_fac;
     unsigned char fab$b_shr;
@@ -31,6 +39,7 @@ struct RAB {
 
 extern struct FAB cc$rms_fab;
 extern struct RAB cc$rms_rab;
+extern struct NAM cc$rms_nam;
 
 #define FAB$M_GET    0x02
 #define FAB$M_SHRGET 0x02

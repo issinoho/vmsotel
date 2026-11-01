@@ -39,7 +39,9 @@ interval = 60
 `vmsotel.conf.example` lists every key: `port`, `path`, `tls`,
 `cafile`, `interval`, `timeout`, `queue`, `max_payload`,
 `resource.NAME = value` for extra attributes on every export, and
-`process.name` and `process.user` for per-process metrics (below). With
+`process.name` and `process.user` for per-process metrics, and
+`logs.opcom` and `logs.audit` for the operator log and the audit
+journal (both below). With
 `tls = yes` the collector's certificate is always verified, against
 `cafile` if given; there is no setting to skip that.
 
@@ -70,6 +72,47 @@ Other accounts' processes need WORLD. `VMSOTEL_START.COM` grants it
 when a line of the configuration begins `process.`, and not otherwise;
 commented-out lines do not count. Without
 it the log says how many processes could not be read.
+
+### Logs: the operator log and the audit journal
+
+```text
+logs.opcom = yes
+logs.audit = yes
+```
+
+Each new OPCOM message and each new audit journal record goes to the
+collector as an OTLP log record, at `logs.path` (default `/v1/logs`;
+the collector needs a `logs` pipeline, as `collector/collector.yaml`
+has). The files are `SYS$MANAGER:OPERATOR.LOG` and
+`SYS$MANAGER:SECURITY.AUDIT$JOURNAL` unless `logs.opcom_file` or
+`logs.audit_file` names others.
+
+- **Privilege.** Both files are SYSTEM's and closed to the world; the
+  agent needs READALL. `VMSOTEL_START.COM` grants it when `logs.opcom`
+  or `logs.audit` is yes on a line that is not a comment.
+- **Where it starts.** At the end of each file: what was there before
+  the agent started is not sent. The first read finds the end by
+  reading the whole file once -- 41 s for I64's 4.5 million records,
+  logged as `starting at the end of …` -- and from then on the agent
+  goes straight back to where it was, by RFA.
+- **Delay.** OPCOM writes its log in batches minutes apart (findings,
+  35), so an operator message reaches the collector up to about a
+  quarter of an hour after it happened. Its `timeUnixNano` is OPCOM's
+  own time for it, from its header line; `observedTimeUnixNano` is
+  when the agent read it. The last message in the log is sent once
+  it has been unchanged for one interval, since OPCOM writes nothing
+  after a message to say it is complete.
+- **Audit records** carry `openvms.audit.type` (`LOGFAIL`, `BREAKIN`,
+  `LOGIN`, …), `openvms.audit.subtype`, and what the record holds of
+  username, remote user and node, terminal, process and final status.
+  Login failures and break-in attempts are WARN. The password packet
+  and the command line are never sent.
+- **New versions** of either file are followed: once the version being
+  read has nothing new, the agent moves to the highest, from its start.
+- **Nothing is lost while the collector is away**: log records stay
+  in the file until the agent has queued them, and two queue slots are
+  kept for metrics, so a burst of audit events cannot push those out.
+  When the queue does fill, metrics exports are dropped before logs.
 
 ## Start
 
@@ -123,7 +166,7 @@ process ends without writing to `VMSOTEL.LOG`.
 | `CLOCK: this system is N s behind the collector …` | timestamps are off by N s; fix NTP. Logged once, and again when it recovers |
 | `cpu mode interrupt is unusable (…); not reported` | x86: that counter reads as negative there; expected, at start |
 | `export failed: …; retrying in N ms; M waiting` | the collector did not take it; it is kept and retried |
-| `queue full (10); oldest payload dropped` | the collector has been away a while; the oldest export is lost |
+| `queue full (10); oldest metrics payload dropped` | the collector has been away a while; the oldest metrics export is lost (logs go only when no metrics are left to drop) |
 | `EXPORT REJECTED, HTTP 400: …` | the collector refused the export outright; a bug, or a wrong `path` |
 | `collector accepted the export but rejected N data points` | partly refused; the message says why |
 | `payload needs N bytes, more than max_payload …` | raise `max_payload` |
@@ -132,6 +175,12 @@ process ends without writing to `VMSOTEL.LOG`.
 | `per-process metrics for N name and M user patterns …` | process.* is set |
 | `N processes could not be read (no WORLD privilege?) …` | the agent lacks WORLD; only its own account's processes are chosen from |
 | `N processes match the process.* patterns; reporting the first 64` | narrow the patterns |
+| `logs to /v1/logs: …; they need READALL` | logs.* is set |
+| `logs: starting at the end of … (N records, S s)` | the first read of a file; nothing before this is sent |
+| `logs: cannot read …: %RMS-E-PRV, …` | no READALL; logged once, retried every interval, and `logs: readable again` when it works |
+| `logs: … is finished; now reading …;N` | a new version of the file |
+| `logs: lost its place in …; starting again from the end` | the record at the saved RFA has changed; what came between is not sent |
+| `log records: N queued, M too large` | at stop: log records sent, and dropped for exceeding `max_payload` |
 
 The same counts go to the collector as `vmsotel.exports`,
 `vmsotel.queue.length`, `vmsotel.collection.duration` and

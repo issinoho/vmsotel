@@ -38,6 +38,9 @@ static void test_responses(void)
     CHECK(parse("HTTP/1.1 200 OK\r\n\r\n{\"partialSuccess\":"
                 "{\"rejectedDataPoints\": 12}}", &r) == VO_HTTP_SENT);
     CHECK(r.rejected == 12);
+    CHECK(parse("HTTP/1.1 200 OK\r\n\r\n{\"partialSuccess\":"
+                "{\"rejectedLogRecords\":\"3\"}}", &r) == VO_HTTP_SENT);
+    CHECK(r.rejected == 3);
 
     /* 429 and 503 wait; Retry-After as seconds or as a date. */
     CHECK(parse("HTTP/1.1 429 Too Many Requests\r\nRetry-After: 2\r\n\r\n",
@@ -92,43 +95,84 @@ static void test_queue(void)
     vo_queue q;
     const char *p;
     size_t n = 0;
+    int kind = -1;
 
     CHECK(!vo_queue_init(&q, 0, 16));
     CHECK(!vo_queue_init(&q, VO_QUEUE_MAX + 1, 16));
     CHECK(vo_queue_init(&q, 3, 8));
-    CHECK(vo_queue_peek(&q, &n) == NULL);
+    CHECK(vo_queue_peek(&q, &n, &kind) == NULL);
 
-    CHECK(vo_queue_push(&q, "aa", 2) == 0);
-    CHECK(vo_queue_push(&q, "bbbbbbbb", 8) == 0);   /* exactly a slot */
-    CHECK(vo_queue_push(&q, "ccccccccc", 9) == -1); /* one over */
-    CHECK(vo_queue_push(&q, "c", 1) == 0);
+    CHECK(vo_queue_push(&q, "aa", 2, 0) == 0);
+    CHECK(vo_queue_push(&q, "bbbbbbbb", 8, 0) == 0);   /* exactly a slot */
+    CHECK(vo_queue_push(&q, "ccccccccc", 9, 0) == -1); /* one over */
+    CHECK(vo_queue_push(&q, "c", 1, 0) == 0);
     CHECK(q.count == 3);
 
     /* Full: the oldest goes. */
-    CHECK(vo_queue_push(&q, "dd", 2) == 1);
+    CHECK(vo_queue_push(&q, "dd", 2, 0) == 1);
     CHECK(q.count == 3);
-    p = vo_queue_peek(&q, &n);
+    p = vo_queue_peek(&q, &n, &kind);
     CHECK(p != NULL && n == 8 && memcmp(p, "bbbbbbbb", 8) == 0);
     vo_queue_pop(&q);
-    p = vo_queue_peek(&q, &n);
+    p = vo_queue_peek(&q, &n, &kind);
     CHECK(p != NULL && n == 1 && p[0] == 'c');
     vo_queue_pop(&q);
-    p = vo_queue_peek(&q, &n);
+    p = vo_queue_peek(&q, &n, &kind);
     CHECK(p != NULL && n == 2 && memcmp(p, "dd", 2) == 0);
     vo_queue_pop(&q);
-    CHECK(vo_queue_peek(&q, &n) == NULL);
+    CHECK(vo_queue_peek(&q, &n, &kind) == NULL);
     vo_queue_pop(&q);                               /* empty: harmless */
     CHECK(q.count == 0);
 
     /* Around the ring more than once. */
-    CHECK(vo_queue_push(&q, "1", 1) == 0);
-    CHECK(vo_queue_push(&q, "2", 1) == 0);
+    CHECK(vo_queue_push(&q, "1", 1, 0) == 0);
+    CHECK(vo_queue_push(&q, "2", 1, 0) == 0);
     vo_queue_pop(&q);
-    CHECK(vo_queue_push(&q, "3", 1) == 0);
-    CHECK(vo_queue_push(&q, "4", 1) == 0);
-    CHECK(vo_queue_push(&q, "5", 1) == 1);
-    p = vo_queue_peek(&q, &n);
-    CHECK(p != NULL && p[0] == '3');
+    CHECK(vo_queue_push(&q, "3", 1, 0) == 0);
+    CHECK(vo_queue_push(&q, "4", 1, 2) == 0);
+    CHECK(vo_queue_push(&q, "5", 1, 1) == 1);
+    p = vo_queue_peek(&q, &n, &kind);
+    CHECK(p != NULL && p[0] == '3' && kind == 0);
+    vo_queue_pop(&q);
+    p = vo_queue_peek(&q, &n, &kind);
+    CHECK(p != NULL && p[0] == '4' && kind == 2);
+    vo_queue_pop(&q);
+    p = vo_queue_peek(&q, &n, &kind);
+    CHECK(p != NULL && p[0] == '5' && kind == 1);
+    vo_queue_free(&q);
+
+    /* Full, with a kind to drop first: the oldest of that kind goes,
+       from the middle, and the order of the rest is kept. */
+    CHECK(vo_queue_init(&q, 4, 8));
+    vo_queue_drop_first(&q, 0);
+    CHECK(vo_queue_push(&q, "L1", 2, 1) == 0);
+    CHECK(vo_queue_push(&q, "M1", 2, 0) == 0);
+    CHECK(vo_queue_push(&q, "L2", 2, 1) == 0);
+    CHECK(vo_queue_push(&q, "M2", 2, 0) == 0);
+    CHECK(vo_queue_push(&q, "M3", 2, 0) == 1);      /* M1 goes */
+    CHECK(q.dropped_kind == 0);
+    CHECK(vo_queue_push(&q, "L3", 2, 1) == 1);      /* M2 goes */
+    {
+        static const char *const want[] = { "L1", "L2", "M3", "L3" };
+        int i;
+
+        for (i = 0; i < 4; i++) {
+            p = vo_queue_peek(&q, &n, &kind);
+            CHECK(p != NULL && n == 2 && memcmp(p, want[i], 2) == 0);
+            vo_queue_pop(&q);
+        }
+    }
+    /* None of that kind left: the oldest of any. */
+    CHECK(vo_queue_push(&q, "L1", 2, 1) == 0);
+    CHECK(vo_queue_push(&q, "L2", 2, 1) == 0);
+    CHECK(vo_queue_push(&q, "L3", 2, 1) == 0);
+    CHECK(vo_queue_push(&q, "M1", 2, 0) == 0);
+    CHECK(vo_queue_push(&q, "M2", 2, 0) == 1);      /* M1 */
+    CHECK(vo_queue_push(&q, "L4", 2, 1) == 1);      /* M2 */
+    CHECK(vo_queue_push(&q, "L5", 2, 1) == 1);      /* L1: no metrics left */
+    CHECK(q.dropped_kind == 1);
+    p = vo_queue_peek(&q, &n, &kind);
+    CHECK(p != NULL && memcmp(p, "L2", 2) == 0 && kind == 1);
     vo_queue_free(&q);
 }
 
@@ -184,6 +228,22 @@ static void test_config(void)
         CHECK(config(text, &c, err) == 18);
         CHECK_CONTAINS(err, "more than 16");
     }
+
+    /* Phase 3: off unless asked for; the files and path have defaults. */
+    CHECK(config("host = h\n", &c, err) == 0);
+    CHECK(c.logs_opcom == 0 && c.logs_audit == 0);
+    CHECK(strcmp(c.logs_path, "/v1/logs") == 0);
+    CHECK(strcmp(c.logs_opcom_file, "SYS$MANAGER:OPERATOR.LOG") == 0);
+    CHECK(strcmp(c.logs_audit_file, "SYS$MANAGER:SECURITY.AUDIT$JOURNAL") == 0);
+    CHECK(config("host = h\nlogs.opcom = yes\nlogs.audit = on\n"
+                 "logs.opcom_file = DKA0:[LOGS]OPERATOR.LOG\n"
+                 "logs.path = /otlp/v1/logs\n", &c, err) == 0);
+    CHECK(c.logs_opcom == 1 && c.logs_audit == 1);
+    CHECK(strcmp(c.logs_opcom_file, "DKA0:[LOGS]OPERATOR.LOG") == 0);
+    CHECK(strcmp(c.logs_path, "/otlp/v1/logs") == 0);
+    CHECK(config("host = h\nlogs.opcom = sometimes\n", &c, err) == 2);
+    CHECK(config("host = h\nlogs.path = v1/logs\n", &c, err) == 2);
+    CHECK(config("host = h\nlogs.audit_file =\n", &c, err) == 2);
 
     CHECK(config("port = 4318\n", &c, err) == -1);
     CHECK_CONTAINS(err, "no host");

@@ -13,6 +13,8 @@
  *     resource.deployment.environment = lab
  *     process.name = MARIADBD*
  *     process.user = LIGHTTPD
+ *     logs.opcom = yes
+ *     logs.audit = yes
  */
 
 #ifndef VO_CONFIG_H
@@ -43,6 +45,13 @@ typedef struct {
     char extra_value[VO_CONFIG_MAX_EXTRA][VO_CONFIG_STR];
 
     vo_proc_filter procs;       /* process.name, process.user */
+
+    /* Phase 3: the operator log and the audit journal, as OTLP logs. */
+    int logs_opcom;
+    int logs_audit;
+    char logs_opcom_file[VO_CONFIG_STR];
+    char logs_audit_file[VO_CONFIG_STR];
+    char logs_path[VO_CONFIG_STR];
 } vo_config;
 
 void vo_config_defaults(vo_config *c);

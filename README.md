@@ -1,7 +1,8 @@
 # vmsotel (draft)
 
-An OpenTelemetry host-metrics agent for OpenVMS. The probes have run
-on both machines; phase 1 (the agent itself) is under way.
+An OpenTelemetry agent for OpenVMS: host and per-process metrics, and
+(phase 3, not yet run on VMS) the operator log and audit journal as
+logs. Phases 1 and 2 have run on both machines.
 It started inside vmsguard (`issinoho/vmsguard`) and was moved here
 with its history; the two share no code.
 

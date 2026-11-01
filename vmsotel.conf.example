@@ -37,3 +37,15 @@ interval = 60
 # not.
 # process.name = MARIADBD*
 # process.user = LIGHTTPD
+
+# Logs: the operator log and the security audit journal, sent as OTLP
+# logs to logs.path. Both files need READALL, which VMSOTEL_START.COM
+# grants only when one of these is yes. The agent starts at the end of
+# each file: what was there before it started is not sent. OPCOM
+# writes its log in batches, so operator messages arrive up to about a
+# quarter of an hour late, each with the time OPCOM gave it.
+# logs.opcom = yes
+# logs.audit = yes
+# logs.path = /v1/logs
+# logs.opcom_file = SYS$MANAGER:OPERATOR.LOG
+# logs.audit_file = SYS$MANAGER:SECURITY.AUDIT$JOURNAL

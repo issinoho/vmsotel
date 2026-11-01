@@ -39,7 +39,7 @@ AGENT_HDRS = $(wildcard src/*/*.h) $(wildcard tests/*.h)
 # Objects that do not change with TLS, and the two that do.
 CORE_OBJ = $(B)/model.o $(B)/procfilter.o $(B)/logparse.o $(B)/otlp_json.o \
            $(B)/platform_posix.o $(B)/queue.o $(B)/config.o \
-           $(B)/fake_source.o
+           $(B)/fake_source.o $(B)/fake_logs.o
 AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
 
 # The VMS source, built here against stub/ so its logic runs before it
@@ -88,7 +88,11 @@ $(B)/config.o: src/agent/config.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 $(B)/fake_source.o: src/sources/fake/fake_source.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
+$(B)/fake_logs.o: src/sources/fake/fake_logs.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 $(B)/vms_source.o: src/sources/vms/vms_source.c $(AGENT_HDRS) stub/*.h | $(B)
+	$(CC) $(VMS_SRC_CFLAGS) -c -o $@ $<
+$(B)/vms_logs.o: src/sources/vms/vms_logs.c $(AGENT_HDRS) stub/*.h | $(B)
 	$(CC) $(VMS_SRC_CFLAGS) -c -o $@ $<
 
 $(B)/http.o: src/transport/http.c $(AGENT_HDRS) | $(B)
@@ -108,7 +112,8 @@ $(B)/vmsotel_tls: $(B)/agent_tls.o $(B)/http_tls.o $(B)/tls.o $(CORE_OBJ)
 	$(CC) -o $@ $^ -lssl -lcrypto
 
 # The plain agent with the VMS source in place of the fake one.
-VMS_CORE_OBJ = $(filter-out $(B)/fake_source.o,$(CORE_OBJ)) $(B)/vms_source.o
+VMS_CORE_OBJ = $(filter-out $(B)/fake_source.o $(B)/fake_logs.o,$(CORE_OBJ)) \
+               $(B)/vms_source.o $(B)/vms_logs.o
 $(B)/vmsotel_vmsstub: $(B)/agent.o $(B)/http.o $(VMS_CORE_OBJ) $(B)/vmsstub.o
 	$(CC) -o $@ $^
 
