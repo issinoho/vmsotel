@@ -147,13 +147,16 @@ $ type sys$login:system.sum
 ```
 
 On the collector's host, this prints one line per data point --
-host, metric, attributes, value -- for the last five minutes (the
+host, process (for phase 2's per-process resources), metric,
+attributes, value -- for the last five minutes (the
 collector's debug exporter, `verbosity: detailed`):
 
 ```sh
 docker logs --since 5m $(docker ps -q --filter ancestor=otel/opentelemetry-collector:0.111.0) 2>&1 |
-  awk '/-> host.name:/ {h=$3} /-> Name:/ {n=$3} /^NumberDataPoints/ {a=""}
-       /-> .*: Str\(/ {a=a" "$NF} /^Value:/ {print h, n, a, $2}' |
+  awk '/ResourceMetrics #/ {p=""} /-> host.name:/ {h=$3}
+       /-> openvms.process.name:/ {p=$3} /-> Name:/ {n=$3}
+       /^NumberDataPoints/ {a=""} /-> .*: Str\(/ {a=a" "$NF}
+       /^Value:/ {print h, p, n, a, $2}' |
   grep -E 'memory.usage|process.count|cpu.time|paging.faults|openvms.io'
 ```
 
@@ -166,6 +169,8 @@ docker logs --since 5m $(docker ps -q --filter ancestor=otel/opentelemetry-colle
 | Buffered I/O Rate | `openvms.io.buffered` | the same |
 | Page Fault Rate | `system.paging.faults`, major + minor | the same |
 | CPU Busy | `system.cpu.time` | 100% less idle's share of the change in all modes |
+| SHOW SYSTEM, a chosen process's CPU | `process.cpu.time` for that process | equal, in seconds |
+| SHOW SYSTEM, its Pages | `process.memory.usage` | bytes ÷ 8192 = pages |
 
 MONITOR averages over its own two minutes, so rates agree to within the
 system's own variation, not exactly; sizes and counts agree closely.
