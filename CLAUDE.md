@@ -17,9 +17,9 @@ On VMS: the self-test matched SHOW and MONITOR, exports reached the
 collector intact, the agent ran detached and stopped cleanly,
 `descrip.mms` built both images (findings 42), and TLS exports went
 through verified against the collector's certificate and were refused
-without it (findings 43); on x86 a clock set back 2 minutes did not
+without it (findings 43), and a clock set back 2 minutes did not
 stall it (findings 44). Not yet run there: a start from
-SYSTARTUP_VMS.COM, and the clock step on I64. `make check` also checks that the three build files agree.
+SYSTARTUP_VMS.COM. `make check` also checks that the three build files agree.
 
 Phase 2, per-process metrics for processes chosen by name or user
 (`process.name`, `process.user`; WORLD), has run on both machines: the
