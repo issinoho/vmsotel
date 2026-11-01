@@ -180,7 +180,7 @@ process ends without writing to `VMSOTEL.LOG`.
 | `logs to /v1/logs: …; they need READALL` | logs.* is set |
 | `logs: starting at the end of … (N records, S s)` | the first read of a file; nothing before this is sent |
 | `logs: cannot read …: %RMS-E-PRV, …` | no READALL; logged once, retried every interval, and `logs: readable again` when it works |
-| `logs: … is finished; now reading …;N` | a new version of the file |
+| `logs: … is finished; now reading …;N` | a new version of the file (REPLY/LOG, SET AUDIT/SERVER=NEW_LOG): the rest of the old one was sent first |
 | `logs: lost its place in …; starting again from the end` | the record at the saved RFA has changed; what came between is not sent |
 | `log records: N queued, M too large` | at stop: log records sent, and dropped for exceeding `max_payload` |
 
