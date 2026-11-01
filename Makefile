@@ -149,6 +149,7 @@ check: all
 	for p in $(VMS_PROBES); do echo "== $$p"; $$p || exit 1; done
 	rm -f $(B)/stub_operator.log
 	$(B)/probe_logs --request | grep -q 'tailing works'
+	$(B)/probe_logs | grep -q 'markers from earlier runs of this probe: [1-9]'
 	STUB_NO_TAIL=1 $(B)/probe_logs --request > $(B)/probe_logs.out
 	grep -q 'tail by reopening' $(B)/probe_logs.out
 	grep -q 'ok    reopened at the last record read, by its RFA' $(B)/probe_logs.out

@@ -412,7 +412,7 @@ and the numbers in MONITOR are the other end.
    operator for OPCOM, and the audit server's listener mailbox -- need
    OPER, SECURITY and a change to the system's audit configuration
    (`SET AUDIT/LISTENER`), so they are held back unless the files
-   cannot do. *(probe: findings 35, 37, 38)*
+   cannot do. *(probe: finding 35)*
 4. **Application instrumentation** — a small C library VMS applications
    link to emit their own metrics and spans through the same transport.
 

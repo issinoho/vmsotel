@@ -188,6 +188,34 @@ static int contains(const unsigned char *b, unsigned short len,
 }
 
 /* Reads to the end. Returns records read; sizes are counted. */
+/*
+ * Earlier runs' markers, found while reading: how many, the last one,
+ * and the OPCOM header line before it, which carries the time OPCOM
+ * gave it. Answers "does REQUEST reach the log at all" from the log
+ * as it stands, with no waiting.
+ */
+#define OLD_MARKER "vmsotel probe_logs marker"
+static unsigned long old_markers;
+static unsigned char old_rec[SHOW_TEXT], old_hdr[SHOW_TEXT];
+static unsigned short old_len, old_hdrlen, hdr_len;
+static unsigned char hdr[SHOW_TEXT];
+
+static void note_old(unsigned short len)
+{
+    unsigned short n = len < SHOW_TEXT ? len : SHOW_TEXT;
+
+    if (len > 11 && memcmp(rec, "%%%%%%%%%%%", 11) == 0) {
+        memcpy(hdr, rec, n);
+        hdr_len = n;
+    } else if (contains(rec, len, OLD_MARKER)) {
+        old_markers++;
+        memcpy(old_rec, rec, n);
+        old_len = n;
+        memcpy(old_hdr, hdr, hdr_len);
+        old_hdrlen = hdr_len;
+    }
+}
+
 static unsigned long read_all_sz(rfile *f, unsigned long base,
                                  unsigned short *minlen,
                                  unsigned short *maxlen,
@@ -207,6 +235,7 @@ static unsigned long read_all_sz(rfile *f, unsigned long base,
             *maxlen = len;
         if (marker && contains(rec, len, marker))
             *hit = 1;
+        note_old(len);
         n++;
     }
     *end = st;
@@ -333,6 +362,12 @@ static void opcom(const char *name, int request, long wait)
     n = read_all(&f, 0, NULL, NULL, &end);
     printf("  %lu records, then %s\n", n, probe_msg(end));
     printf("  reading them all took %ld s\n", (long) (time(NULL) - t0));
+    printf("  markers from earlier runs of this probe: %lu\n", old_markers);
+    if (old_markers > 0) {
+        printf("  the last, and the OPCOM line before it:\n");
+        print_text(old_hdr, old_hdrlen);
+        print_text(old_rec, old_len);
+    }
     printf("  the last %d:\n", n < KEEP ? (int) n : KEEP);
     print_kept(n, 0);
     if (end != RMS$_EOF)
