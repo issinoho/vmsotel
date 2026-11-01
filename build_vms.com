@@ -7,6 +7,8 @@ $!     @[.vmsotel]build_vms SELFTEST     build, then the self-test beside
 $!                                       SHOW MEMORY, SHOW DEVICE D, MONITOR
 $!     @[.vmsotel]build_vms RUN          build, then three exports to the
 $!                                       collector on docker-nuc
+$!     @[.vmsotel]build_vms LOGS         build, then 90 s with the operator
+$!                                       log and audit journal on (READALL)
 $!     @[.vmsotel]build_vms CLEAN        delete [.build]VMSOTEL*.EXE and
 $!                                       the agent's objects
 $!
@@ -218,6 +220,7 @@ $ if warned .nes. "" then say "compiled with warnings:''warned'  -- paste them"
 $ if failed .nes. "" then say "FAILED:''failed'  -- paste the messages above"
 $ if p1 .eqs. "SELFTEST" then goto selftest
 $ if p1 .eqs. "RUN" then goto run_agent
+$ if p1 .eqs. "LOGS" then goto run_logs
 $ goto finish
 $!
 $!---------------------------------------------------------------------
@@ -292,6 +295,39 @@ $ vmsotel_tls := $sys$disk:[.build]vmsotel_tls.exe
 $ say ""
 $ say "=== vmsotel_tls, TLS to 192.168.0.218:4319, verified against ''ca'"
 $ vmsotel_tls [.build]docker-nuc-tls.conf --cycles 1
+$ say "=== exit status ", $status
+$ goto finish
+$!
+$!---------------------------------------------------------------------
+$! LOGS: phase 3 -- nine collections 10 s apart with both logs on, to
+$! the collector on docker-nuc, in this process, which needs READALL.
+$! The first read of each file finds its end (I64: about 40 s) and says
+$! so; after that, new audit records and OPCOM messages are sent. OPCOM
+$! writes its log in batches minutes apart (findings 35), so 90 s may
+$! well show no operator message: VMSOTEL_START with logs.* in
+$! VMSOTEL.CONF is the longer test.
+$!---------------------------------------------------------------------
+$!
+$ run_logs:
+$ if f$search("[.build]vmsotel.exe") .eqs. "" then goto finish
+$ say ""
+$ say "=== privileges: READALL is needed"
+$ show process/privileges
+$ open/write cf [.build]docker-nuc-logs.conf
+$ write cf "! written by build_vms.com LOGS"
+$ write cf "host = 192.168.0.218"
+$ write cf "port = 4318"
+$ write cf "interval = 10"
+$ write cf "logs.opcom = yes"
+$ write cf "logs.audit = yes"
+$ close cf
+$ say ""
+$ say "=== the two files"
+$ directory/size/date sys$manager:operator.log,security.audit$journal
+$ vmsotel := $sys$disk:[.build]vmsotel.exe
+$ say ""
+$ say "=== vmsotel, plain HTTP to 192.168.0.218:4318, logs on, nine cycles"
+$ vmsotel [.build]docker-nuc-logs.conf --cycles 9
 $ say "=== exit status ", $status
 $ goto finish
 $!
