@@ -27,9 +27,9 @@ probing.
 
 Phase 3, the operator log and the audit journal as OTLP logs
 (`logs.opcom`, `logs.audit`; READALL), is built and has run detached
-for an hour on the Itanium: 2162 operator-log records reached the
-collector with OPCOM's own timestamps (findings 40). Not yet run on
-x86, and no audit record has yet gone through the agent. Its probes (findings 33–38) are answered on both
+for an hour on both machines (findings 40): I64's operator-log records
+and x86's audit records (live SSH login failures) reached the collector
+with their own timestamps. A rotated file has not been seen. Its probes (findings 33–38) are answered on both
 machines; `docs/design.md`, "Phases", says what they decided. The
 parsers are pure (`src/model/logparse.c`, tested on real records from
 both machines); the reader is `src/sources/vms/vms_logs.c`, run here

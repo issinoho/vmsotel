@@ -423,8 +423,9 @@ and the numbers in MONITOR are the other end.
    about a quarter of an hour late; each is dated by its own OPCOM
    header line, with the read time as observed time. An operator
    mailbox would cut that latency at the cost of OPER.
-   Built, and run detached for an hour on the Itanium (findings 40;
-   x86 still to run, and no audit record yet seen through the agent):
+   Built, and run detached for an hour on both machines (findings 40:
+   operator-log records from I64, audit records from x86's SSH
+   brute force; a rotated file not yet seen):
    `src/model/logparse.c` parses both
    formats, `vo_otlp_encode_logs` writes ExportLogsServiceRequest,
    `src/sources/vms/vms_logs.c` reads the files, and the agent queues
