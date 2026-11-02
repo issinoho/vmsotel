@@ -223,7 +223,9 @@ collector, which must be stopped first; the TLS receiver needs
 cd ~/projects/vmsotel/collector/grafana && docker compose up -d
 ```
 
-Grafana is on port 3000 (admin / admin, then a new password). Pick the
+Grafana is on port 3300, not its usual 3000, which docker-nuc already
+uses (`GRAFANA_PORT=nnnn docker compose up -d` for another); admin /
+admin, then a new password. Pick the
 host at the top. The dashboard shows CPU by VMS mode, memory, disk space
 by volume, disk and system I/O, processes by scheduling state, paging,
 the chosen processes, audit events by type with login failures marked

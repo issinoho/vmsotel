@@ -2,7 +2,8 @@
 # Prometheus (metrics) and Loki (logs) -> Grafana.
 #
 #   cd collector/grafana && docker compose up -d
-#   Grafana: http://<this host>:3000  (admin / admin; it asks for a new one)
+#   Grafana: http://<this host>:3300  (admin / admin; it asks for a new one)
+#   GRAFANA_PORT=nnnn docker compose up -d    to use another port
 #
 # The collector takes the same ports as collector/collector.yaml (4318
 # plain, 4319 TLS), so stop that one first. The TLS receiver needs
@@ -54,7 +55,8 @@ services:
       - ./dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "3000:3000"
+      # Not 3000: docker-nuc already serves that (nghttpx).
+      - "${GRAFANA_PORT:-3300}:3000"
     depends_on: [prometheus, loki]
     restart: unless-stopped
 
