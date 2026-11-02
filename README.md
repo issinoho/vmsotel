@@ -1,161 +1,234 @@
-# vmsotel (draft)
+<p align="center">
+  <img src="docs/images/banner.svg" alt="vmsotel: a DECterm window configuring the agent's account, starting it as that account, and showing its log, beside a mark of metrics and log lines gathered into one line to a collector" width="100%">
+</p>
 
-An OpenTelemetry agent for OpenVMS: host and per-process metrics, and
-(phase 3) the operator log and audit journal as logs. All three phases have run on both machines.
-It started inside vmsguard (`issinoho/vmsguard`) and was moved here
-with its history; the two share no code.
+# vmsotel
 
-MIT licensed (`LICENSE`).
+[![Release](https://img.shields.io/github/v/release/issinoho/vmsotel?label=release)](https://github.com/issinoho/vmsotel/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/issinoho/vmsotel/total?label=downloads)](https://github.com/issinoho/vmsotel/releases)
+![OpenVMS](https://img.shields.io/badge/OpenVMS-IA64%20%7C%20x86--64-blue)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-- `CLAUDE.md` — working notes for Claude Code sessions
-- `docs/design.md` — the design, and the questions the probes answer
-- `docs/findings.md` — what the probes showed, per machine
-- `docs/prompts.md` — paste-ready prompts for each stage
-- `src/model/` — one reading of the system, and 32-to-64-bit counter
-  widening
-- `src/otlp/` — the OTLP JSON encoder
-- `src/platform/` — the platform interface, and its POSIX implementation
-- `src/transport/` — HTTP/1.1 POST, TLS over memory BIOs, the export
-  queue
-- `src/sources/` — the source interface; `fake/` has scripted values
-- `src/agent/` — the configuration file and the collect-and-send loop
-- `vmsotel.conf.example` — every configuration key, explained
-- `tests/` — unit tests and golden payloads
-- `probes/` — six probes: four system-service probes, and the OTLP
-  export without and with TLS
-- `collector/` — collector configuration for docker-nuc
-- `tools/fake_collector.py` — a schema-checking stand-in collector for
-  Linux testing
-- `stub/` — Linux stand-ins for the VMS system services, so the probes
-  run here first
+An [OpenTelemetry](https://opentelemetry.io) agent for **OpenVMS** (x86-64 and
+Integrity/IA64). It reads the system services and sends this system's metrics
+and, if you ask, its operator log and audit journal to an OpenTelemetry
+collector over **OTLP/HTTP**, with or without TLS. From the collector they go
+wherever your other systems' telemetry goes: Prometheus, Grafana, Elastic,
+Datadog, Splunk or anything else that takes OTLP.
 
-## On Linux
+It is written for OpenVMS from scratch in C99, with no C++ and nothing to
+port: VSI C on both architectures, VSI's OpenSSL 3 kit for TLS. It connects
+out to the collector, so nothing listens on the VMS system. Installed from the
+kit, it runs as an account of its own, never as SYSTEM, with only the
+privileges its configuration needs.
+
+Part of the same family as [the beszel agent](https://github.com/issinoho/vms-beszel),
+[VTOP](https://github.com/issinoho/vms-vtop), [Steward](https://github.com/issinoho/vms-steward)
+and the other [ports and tools for OpenVMS](https://openvms.issinoho.com).
+
+## What it sends
+
+**System metrics**, every minute by default, named as the collector's own
+`hostmetrics` receiver names them on Linux, so the same dashboards mostly just
+work:
+
+| Metric | From |
+| --- | --- |
+| `system.cpu.time` by VMS mode (user, supervisor, executive, kernel, interrupt, MP synch, idle) and `system.cpu.logical.count` | `$GETRMI`, `$GETSYI` |
+| `system.memory.usage` (used, free, modified) and `system.memory.limit` | `$GETRMI`, `$GETSYI` |
+| `system.paging.usage`, `system.paging.faults`, `system.paging.operations` | page files, `$GETRMI` |
+| `system.disk.operations`, `system.filesystem.usage` per mounted disk | `$DEVICE_SCAN`, `$GETDVI` |
+| `system.process.count` by state, `system.uptime` | `$GETJPI`, `$GETSYI` |
+| `openvms.io.direct`, `openvms.io.buffered` | `$GETRMI` |
+
+Each export carries `host.name`, `host.arch`, `host.type`, `os.type`
+(`openvms`), `os.version`, `openvms.scsnode` and `openvms.cluster.member`,
+plus any `resource.*` attributes you add.
+
+**Chosen processes** (optional): CPU time and memory for processes picked by
+name or username, with VMS wildcards (`process.name = MARIADBD*`,
+`process.user = LIGHTTPD`). Needs WORLD.
+
+**Logs** (optional): the operator log (`OPCOM` messages) and the security
+audit journal as OTLP log records, each with its own timestamp. Audit records
+are decoded: login failures and break-in attempts arrive as WARN, with the
+user, remote node, terminal, process and status as attributes. Passwords and
+command lines are never sent. The agent follows `REPLY/LOG` and
+`SET AUDIT/SERVER=NEW_LOG` to the new files. Needs READALL.
+
+**Its own health**: `vmsotel.exports` by outcome, `vmsotel.queue.length`,
+`vmsotel.collection.duration` and `vmsotel.clock.skew`. When the collector is
+down it keeps a bounded queue and drops the oldest metrics first, so a
+monitoring outage can never fill a VMS system's memory or disk.
+
+## Downloads
+
+From the [latest release](https://github.com/issinoho/vmsotel/releases/latest):
+
+| Kit | Platform |
+|---|---|
+| `ISSINOHO-I64VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS IA64 (built and tested on V8.4-2L3) |
+| `ISSINOHO-X86VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS x86-64 (built and tested on E9.2-4) |
+
+`SHA256SUMS` lists the SHA-256 of each kit. Requires VSI TCP/IP Services and
+VSI's SSL3 kit.
+
+## Installing
+
+A kit downloaded through a non-VMS system loses its record format. As SYSTEM,
+restore it and install:
+
+```dcl
+$ SET FILE/ATTRIBUTE=(RFM:FIX,LRL:8192,MRS:8192,RAT:NONE) ISSINOHO-*-VMSOTEL-V0001-0-1.PCSI
+$ PRODUCT INSTALL VMSOTEL /PRODUCER=ISSINOHO /SOURCE=dev:[dir]
+```
+
+The kits are not signed, so PCSI notes that it cannot validate a signature.
+The product goes in `[VMSOTEL]` under the destination (`SYS$COMMON:` by
+default), rooted by `VMSOTEL$ROOT`.
+
+Then, once, create the agent's account and its configuration:
+
+```dcl
+$ @VMSOTEL$ROOT:[COM]VMSOTEL$CONFIGURE
+```
+
+It asks for the account (default `VMSOTEL`) and its UIC: a group of its own,
+above `MAXSYSGROUP`, that no other account uses (it checks). The account
+cannot log in by any route, but the agent runs as it. Its authorized
+privileges are NETMBX and TMPMBX, plus WORLD and READALL only if the
+configuration asks for processes or logs. Run it again after turning those on.
+
+## Using it
+
+Set `host` to your collector in `VMSOTEL$ROOT:[CONF]VMSOTEL.CONF`. The file
+was made from `VMSOTEL.CONF_EXAMPLE`, which explains every setting. Then:
+
+```dcl
+$ @VMSOTEL$ROOT:[COM]VMSOTEL_START
+$ TYPE VMSOTEL$ROOT:[LOG]VMSOTEL.LOG
+$ @VMSOTEL$ROOT:[COM]VMSOTEL_STOP
+```
+
+`VMSOTEL_STOP` asks the agent to stop. It makes one more attempt to send what
+it has queued, then logs a summary. To start at boot and stop at shutdown, add
+to `SYSTARTUP_VMS.COM` (after TCP/IP) and `SYSHUTDWN.COM`:
+
+```dcl
+$ @SYS$STARTUP:VMSOTEL$STARTUP.COM
+$ @SYS$STARTUP:VMSOTEL$SHUTDOWN.COM
+```
+
+The main settings:
+
+```
+host = otel.example.com       # the collector
+port = 4318                   # OTLP/HTTP
+interval = 60                 # seconds between collections
+tls = yes                     # always verified, against cafile or the system CAs
+cafile = VMSOTEL$ROOT:[CONF]COLLECTOR.CRT
+process.name = MARIADBD*      # chosen processes (WORLD)
+logs.opcom = yes              # the operator log (READALL)
+logs.audit = yes              # the audit journal (READALL)
+resource.deployment.environment = production
+```
+
+To check what it reads, without sending anything, compare its self-test with
+SHOW and MONITOR:
+
+```dcl
+$ VMSOTEL := $VMSOTEL$ROOT:[BIN]VMSOTEL.EXE
+$ VMSOTEL --SELFTEST
+```
+
+[`docs/operations.md`](docs/operations.md) explains every line the agent logs,
+and how to check its numbers against MONITOR.
+
+### The collector
+
+Any OpenTelemetry Collector with the OTLP receiver will do. It needs a
+`metrics` pipeline, and a `logs` pipeline if you send logs; without one, the
+agent logs `HTTP 404 on /v1/logs` and says why. Recent collectors listen on
+localhost only unless told otherwise:
+
+```yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+service:
+  pipelines:
+    metrics: { receivers: [otlp], exporters: [your-exporter] }
+    logs:    { receivers: [otlp], exporters: [your-exporter] }
+```
+
+Keep the VMS clock right (NTP): every timestamp is taken from it. The agent
+compares it with the collector's at every export and logs a warning when they
+differ by more than 2 s.
+
+## Tested
+
+Both kits are built natively and have run on an x86-64 E9.2-4 system and an
+Integrity rx2660 on V8.4-2L3 against OpenTelemetry Collector 0.111.0:
+- The self-test matched SHOW and MONITOR.
+- Per-process CPU and memory equalled SHOW SYSTEM.
+- Operator-log and audit records arrived with their own timestamps.
+- TLS exports were verified, and refused without the right certificate.
+- A clock set back did not stall the agent.
+- Rotated logs were followed without loss.
+
+[`docs/findings.md`](docs/findings.md) has every result, with the evidence
+from both machines.
+
+## Building from source
+
+On OpenVMS, from the directory that is to hold it (type git subcommands in
+lowercase):
+
+```dcl
+$ git clone https://github.com/issinoho/vmsotel.git
+$ @[.vmsotel]build_vms SELFTEST
+$ @[.vmsotel.kit]make_kit
+```
+
+`build_vms` builds `VMSOTEL.EXE`, `VMSOTEL_TLS.EXE` and `VMSOTEL_LAUNCH.EXE` in
+`[.vmsotel.build]`. `SELFTEST` prints every value it reads beside the SHOW or
+MONITOR command that shows the same number. `descrip.mms` builds the same with
+`MMS` (type `MMS CLEAN` in capitals). `make_kit` writes the PCSI kit to
+`[.vmsotel.KIT_<arch>]`. A source tree can also be run directly, as whoever
+starts it: see [`docs/operations.md`](docs/operations.md).
+
+## For developers
+
+Most of the work is done on Linux, against stand-ins for the VMS system
+services, before anything costs a round trip to a VMS machine:
 
 ```sh
 make check
 ```
 
-That runs the agent's unit tests, checks the encoder's golden
-payloads (`tests/golden/`) against the OTLP schema, runs the agent
-against the fake collector (retries, `Retry-After`, rejection, a
-collector that is down, TLS verification), builds every probe,
-runs the four system-service probes against
-the stub, and runs `probe_otlp` and `probe_otlp_tls` against the fake
-collector — including the cases that must fail (an HTTP 503, an hour
-of clock skew, plain HTTP to a TLS port). With the
-`opentelemetry-proto` Python package installed
-(`PYTHON=/path/to/venv/bin/python make check`) the fake collector
-parses every payload against the official schema; without it, only the
-JSON syntax is checked, and it says so.
+That runs:
+- The unit tests.
+- The encoder's golden payloads (`tests/golden/`), checked against the OTLP schema.
+- The agent against a fake collector: retries, `Retry-After`, rejection, a collector that is down, TLS verification, clock skew, and logs.
+- The VMS source and the kit's launcher, against `stub/`.
+- Checks that the three build files and the kit's file list agree.
 
-## The agent on Linux
+With `opentelemetry-proto` installed (`PYTHON=/path/to/venv/bin/python make
+check`), every payload is parsed against the official schema.
 
-`make` builds `build/vmsotel` (plain HTTP) and `build/vmsotel_tls`.
-On Linux they read the fake source, so they send scripted values, not
-this machine's. Point a configuration at a collector and run it; it
-logs to standard output and runs until stopped:
+- [`docs/design.md`](docs/design.md): the design, and the reasons behind it
+- [`docs/findings.md`](docs/findings.md): what the probes and the agent showed on each machine
+- [`CLAUDE.md`](CLAUDE.md): the working notes and constraints (C99, 32-bit item lists, three build files)
+- `src/`: `model/` (one reading of the system), `otlp/` (the OTLP JSON encoder), `platform/`, `transport/` (HTTP, TLS over memory BIOs, the queue), `sources/` (VMS and fake), `agent/`, `launch/` (the kit's launcher)
+- `probes/`: the programs that answered the design's questions on both machines, before the code relied on the answers
+- `kit/`: the PCSI kit; `collector/`: the test collector's configuration
 
-```sh
-cp vmsotel.conf.example my.conf      # edit host and port
-build/vmsotel my.conf
-build/vmsotel my.conf --cycles 3     # three collections, then stop
-```
+It started inside [vmsguard](https://github.com/issinoho/vmsguard) and was moved
+here with its history; the two share no code.
 
-## On docker-nuc: the collector
+## Licence
 
-The collector runs in Docker on docker-nuc, `192.168.0.218`, which is
-where the OTLP probes post: ports 4318 (plain) and 4319 (TLS). It needs
-a clone of this repository there; start Docker from inside it, or the
-bind mounts below name files that do not exist and Docker creates
-empty root-owned directories in their place.
-
-```sh
-git clone https://github.com/issinoho/vmsotel.git ~/projects/vmsotel
-cd ~/projects/vmsotel/collector
-./make-cert.sh
-docker run --rm -p 4318:4318 -p 4319:4319 \
-  -v "$PWD/collector.yaml:/etc/otelcol/config.yaml:ro" \
-  -v "$PWD/collector.crt:/etc/otelcol/collector.crt:ro" \
-  -v "$PWD/collector.key:/etc/otelcol/collector.key:ro" \
-  otel/opentelemetry-collector:0.111.0
-```
-
-If docker-nuc runs a firewall, ports 4318 and 4319 must be open to the
-LAN (`sudo ufw allow 4318:4319/tcp` with ufw). Leave the collector's
-output in view: each probe's data points appear there, and that is the
-other end to watch.
-
-Without Docker, `tools/fake_collector.py --port 4318` will do for the
-plain-HTTP probe.
-
-## On OpenVMS
-
-Same commands on both machines. Clone once, from the directory that
-holds the vmsguard checkout (type git subcommands in lowercase):
-
-```dcl
-$ git clone https://github.com/issinoho/vmsotel.git
-$ @[.vmsotel]build_probes/OUTPUT=probes.log RUN
-$ type probes.log
-```
-
-Later, to pick up changes: `set default [.vmsotel]`, `git pull`,
-`set default [-]`, and run it again.
-
-The agent itself is built by `build_vms.com`, from the same directory:
-
-```dcl
-$ @[.vmsotel]build_vms/OUTPUT=selftest.log SELFTEST
-$ @[.vmsotel]build_vms/OUTPUT=run.log RUN
-```
-
-`SELFTEST` builds `[.vmsotel.build]VMSOTEL.EXE` and `VMSOTEL_TLS.EXE`
-and prints every value the agent reads beside the `SHOW` or `MONITOR`
-command that shows the same number. `RUN` sends three exports to the
-collector on docker-nuc, and a TLS one too if `collector.crt` from
-docker-nuc has been copied into `[.vmsotel]`. `descrip.mms` builds the
-same images with `MMS CLEAN` and `MMS` (capitals: with the extended
-parse style a lower-case target is not found), on both machines.
-
-To run the agent as a service, see `docs/operations.md`. To make the
-PCSI kit, which installs it to run as an account of its own, run
-`@[.vmsotel.kit]make_kit` after `build_vms`; the kit is written to
-`[.vmsotel.KIT_<arch>]` (`docs/design.md`, "The installation kit").
-
-That builds the six probes, runs them, and runs `SHOW SYSTEM` and
-`SHOW DEVICE D` beside the probes that need comparing with them. Run it
-**without** elevated privileges first; whether the probes need any is
-one of the questions.
-
-If many items come back "not declared", this lists what the system
-headers actually contain:
-
-```dcl
-$ @[.vmsotel]build_probes/OUTPUT=headers.log HEADERS
-```
-
-## Verified
-
-- All six probes build with `-std=c99 -Wall -Wextra -Werror` on Linux
-  (`probe_otlp` with `-pedantic` too). The four system-service probes
-  drop `-pedantic` only because it rejects `$` in identifiers, which VMS
-  names cannot avoid.
-- The system-service probes run against `stub/vmsstub.c`, including the
-  refused-item, longword-retry, NOPRIV/SUSPENDED and unmounted-disk
-  paths. The CPU-unit check was confirmed to fail when the stub reports
-  one CPU's ticks against two active CPUs.
-- `probe_otlp` and `probe_otlp_tls` pass all seven fake-collector
-  cases, with every payload parsed by protobuf against
-  `opentelemetry-proto` 1.27.0, and later 1.45.2.
-- The model and encoder build with `-std=c99 -pedantic -Wall -Wextra
-  -Werror`, pass their unit tests, and their golden payloads parse
-  against `opentelemetry-proto` 1.45.2. Twelve deliberate breaks of the
-  code were each caught by a test.
-
-The probes have since run on both VMS machines, and the collector
-configuration on docker-nuc. The agent has run on both too: built by
-`build_vms.com`, its self-test matched SHOW and MONITOR, it sent
-exports the collector decoded, and it ran detached and stopped cleanly
-through `vmsotel_start.com` and `vmsotel_stop.com`. `docs/findings.md`
-has each result and what has not yet been seen: a start from
-`SYSTARTUP_VMS.COM`.
+MIT; see [LICENSE](LICENSE). OpenTelemetry and OTLP are projects of the Cloud
+Native Computing Foundation; vmsotel is independent of them.
