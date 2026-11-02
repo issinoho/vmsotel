@@ -163,6 +163,10 @@ service:
     logs:    { receivers: [otlp], exporters: [your-exporter] }
 ```
 
+For dashboards from scratch, `collector/grafana/` is a Docker Compose stack:
+the collector, Prometheus for metrics, Loki for logs, and Grafana with an
+OpenVMS host dashboard (`docs/operations.md`, "Dashboards").
+
 Keep the VMS clock right (NTP): every timestamp is taken from it. The agent
 compares it with the collector's at every export and logs a warning when they
 differ by more than 2 s.

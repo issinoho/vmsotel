@@ -1,0 +1,44 @@
+# The collector for the Grafana stack: the same receivers as
+# ../collector.yaml, sending metrics to Prometheus and logs to Loki,
+# both over their native OTLP endpoints.
+#
+# The debug exporter is kept at `detailed`, so the collector's own
+# output is still the other end to watch (docs/operations.md). Set it
+# to `basic` to quieten it.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+  otlp/tls:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4319
+        tls:
+          cert_file: /etc/otelcol/collector.crt
+          key_file: /etc/otelcol/collector.key
+
+processors:
+  batch:
+    timeout: 5s
+
+exporters:
+  debug:
+    verbosity: detailed
+  # The exporter adds /v1/metrics and /v1/logs to these.
+  otlphttp/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, otlp/tls]
+      processors: [batch]
+      exporters: [debug, otlphttp/prometheus]
+    logs:
+      receivers: [otlp, otlp/tls]
+      processors: [batch]
+      exporters: [debug, otlphttp/loki]

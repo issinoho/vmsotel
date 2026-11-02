@@ -208,6 +208,38 @@ The same counts go to the collector as `vmsotel.exports`,
 `vmsotel.queue.length`, `vmsotel.collection.duration` and
 `vmsotel.clock.skew`.
 
+## Dashboards
+
+`collector/grafana/` runs a collector with somewhere to look: the
+OpenTelemetry Collector takes the agent's exports on the usual ports
+(4318, and 4319 with TLS) and passes metrics to Prometheus and logs to
+Loki, both over their own OTLP endpoints; Grafana shows them, with the
+datasources and an "OpenVMS host (vmsotel)" dashboard already set up.
+On the collector's host (it replaces `collector/collector.yaml`'s
+collector, which must be stopped first; the TLS receiver needs
+`collector/make-cert.sh` to have been run once):
+
+```sh
+cd ~/projects/vmsotel/collector/grafana && docker compose up -d
+```
+
+Grafana is on port 3000 (admin / admin, then a new password). Pick the
+host at the top. The dashboard shows CPU by VMS mode, memory, disk space
+by volume, disk and system I/O, processes by scheduling state, paging,
+the chosen processes, audit events by type with login failures marked
+on every graph, the operator log, and the agent's own exports, queue and
+clock skew. Panels for processes and logs stay empty until the
+configuration turns those on.
+
+In Prometheus, metric names have dots as underscores and the unit as a
+suffix (`system.cpu.time` is `system_cpu_time_seconds_total`), and the
+host is the label `host_name`. In Loki, the stream is
+`{service_name="vmsotel", host_name="..."}` and each record's attributes
+can be filtered on: `| openvms_audit_type="LOGFAIL"`. Both keep 90 days.
+
+The collector's debug output is still there (`docker compose logs
+otelcol`), so the checks below still work.
+
 ## Checking the numbers against MONITOR
 
 While the agent runs, take a two-minute MONITOR summary:

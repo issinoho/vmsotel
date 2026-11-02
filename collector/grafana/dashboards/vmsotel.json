@@ -1,0 +1,1793 @@
+{
+  "uid": "vmsotel-host",
+  "title": "OpenVMS host (vmsotel)",
+  "tags": [
+    "openvms",
+    "vmsotel"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "label": "Host",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(system_uptime_seconds, host_name)",
+          "refId": "host"
+        },
+        "definition": "label_values(system_uptime_seconds, host_name)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Login failures",
+        "enable": true,
+        "iconColor": "red",
+        "datasource": {
+          "type": "loki",
+          "uid": "loki"
+        },
+        "expr": "{service_name=\"vmsotel\", host_name=\"$host\"} | openvms_audit_type=~\"LOGFAIL|BREAKIN\"",
+        "titleFormat": "{{openvms_audit_type}}",
+        "textFormat": "{{openvms_audit_username}} from {{openvms_audit_remote_nodename}}"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Uptime",
+      "id": 1,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "system_uptime_seconds{host_name=\"$host\"}",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "CPUs",
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 4,
+        "w": 2,
+        "x": 4,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "system_cpu_logical_count{host_name=\"$host\"}",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "CPU busy",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Every mode but idle, across all CPUs.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 6,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "1 - sum(rate(system_cpu_time_seconds_total{host_name=\"$host\", cpu_mode=\"idle\"}[$__rate_interval])) / sum(rate(system_cpu_time_seconds_total{host_name=\"$host\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Memory used",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 10,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(system_memory_usage_bytes{host_name=\"$host\", system_memory_state=\"used\"}) / sum(system_memory_limit_bytes{host_name=\"$host\"})",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Processes",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 14,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(system_process_count{host_name=\"$host\"})",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Exports lost or failed",
+      "id": 6,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Exports the agent could not deliver in the time shown (failed attempts are retried; dropped ones are lost).",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 17,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(increase(vmsotel_exports_total{host_name=\"$host\", vmsotel_outcome=~\"failed|dropped\"}[$__range])) or vector(0)",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Clock skew",
+      "id": 7,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "How far the VMS clock is from the collector's. Over 2 s, every timestamp is off; fix NTP.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "abs(vmsotel_clock_skew_seconds{host_name=\"$host\"})",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background_solid",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "CPU and memory",
+      "id": 8,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU by mode",
+      "id": 9,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Share of all CPUs' time in each VMS mode (idle left out).",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (cpu_mode) (rate(system_cpu_time_seconds_total{host_name=\"$host\", cpu_mode!=\"idle\"}[$__rate_interval])) / scalar(sum(rate(system_cpu_time_seconds_total{host_name=\"$host\"}[$__rate_interval])))",
+          "refId": "A",
+          "legendFormat": "{{cpu_mode}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 70,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory",
+      "id": 10,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (system_memory_state) (system_memory_usage_bytes{host_name=\"$host\"})",
+          "refId": "A",
+          "legendFormat": "{{system_memory_state}}",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(system_memory_limit_bytes{host_name=\"$host\"})",
+          "refId": "B",
+          "legendFormat": "physical memory",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 70,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "physical memory"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "free"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Disks and I/O",
+      "id": 11,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "title": "Disk space used",
+      "id": 12,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Each mounted disk, by volume label.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (system_device, system_filesystem_mountpoint) (system_filesystem_usage_bytes{host_name=\"$host\", system_filesystem_state=\"used\"}) / sum by (system_device, system_filesystem_mountpoint) (system_filesystem_usage_bytes{host_name=\"$host\"})",
+          "refId": "A",
+          "legendFormat": "{{system_filesystem_mountpoint}} {{system_device}}",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "top",
+        "sizing": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Disk operations",
+      "id": 13,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Per disk; VMS keeps no read/write split ($GETDVI OPCNT).",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 15
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (system_device) (rate(system_disk_operations_total{host_name=\"$host\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{system_device}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "iops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "System I/O",
+      "id": 14,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Direct and buffered I/O, as MONITOR IO shows.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 15
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(openvms_io_direct_total{host_name=\"$host\"}[$__rate_interval])",
+          "refId": "A",
+          "legendFormat": "direct",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(openvms_io_buffered_total{host_name=\"$host\"}[$__rate_interval])",
+          "refId": "B",
+          "legendFormat": "buffered",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "iops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Processes and paging",
+      "id": 15,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Processes by state",
+      "id": 16,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "VMS scheduling states (COM, LEF, HIB, ...).",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 25
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (openvms_process_state) (system_process_count{host_name=\"$host\"}) > 0",
+          "refId": "A",
+          "legendFormat": "{{openvms_process_state}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 70,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Paging",
+      "id": 17,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 9,
+        "w": 10,
+        "x": 8,
+        "y": 25
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (system_paging_fault_type) (rate(system_paging_faults_total{host_name=\"$host\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{system_paging_fault_type}} faults",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (system_paging_direction) (rate(system_paging_operations_total{host_name=\"$host\"}[$__rate_interval]))",
+          "refId": "B",
+          "legendFormat": "page {{system_paging_direction}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "gauge",
+      "title": "Page file used",
+      "id": 18,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 18,
+        "y": 25
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(system_paging_usage_bytes{host_name=\"$host\", system_paging_state=\"used\"}) / sum(system_paging_usage_bytes{host_name=\"$host\"})",
+          "refId": "A",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Chosen processes (process.name / process.user)",
+      "id": 19,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Process CPU",
+      "id": 20,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Share of one CPU. Empty unless the agent's configuration chooses processes.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (openvms_process_name, openvms_process_id) (rate(process_cpu_time_seconds_total{host_name=\"$host\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{openvms_process_name}} {{openvms_process_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Process memory",
+      "id": 21,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 35
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (openvms_process_name, openvms_process_id) (process_memory_usage_bytes{host_name=\"$host\"})",
+          "refId": "A",
+          "legendFormat": "{{openvms_process_name}} {{openvms_process_id}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Security audit and operator log",
+      "id": 22,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Audit events",
+      "id": 23,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Audit journal records by type. Empty unless logs.audit = yes.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (openvms_audit_type) (count_over_time({service_name=\"vmsotel\", host_name=\"$host\"} | openvms_audit_type != \"\" [$__auto]))",
+          "refId": "A",
+          "queryType": "range",
+          "legendFormat": "{{openvms_audit_type}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LOGFAIL"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "BREAKIN"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LOGIN"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "LOGOUT"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Login failures and break-in attempts",
+      "id": 24,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Open a line for the user, remote node, terminal and status.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service_name=\"vmsotel\", host_name=\"$host\"} | openvms_audit_type=~\"LOGFAIL|BREAKIN\"",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "Operator log (OPCOM)",
+      "id": 25,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Empty unless logs.opcom = yes.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service_name=\"vmsotel\", host_name=\"$host\"} | openvms_audit_type = \"\"",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "type": "logs",
+      "title": "All audit records",
+      "id": 26,
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service_name=\"vmsotel\", host_name=\"$host\"} | openvms_audit_type != \"\"",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true,
+        "prettifyLogMessage": false,
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "type": "row",
+      "title": "The agent",
+      "id": 27,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 62
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Exports",
+      "id": 28,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 63
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (vmsotel_outcome) (increase(vmsotel_exports_total{host_name=\"$host\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{vmsotel_outcome}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 2,
+            "fillOpacity": 80,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sent"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "dropped"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue length",
+      "id": 29,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Exports waiting for the collector.",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 63
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "vmsotel_queue_length{host_name=\"$host\"}",
+          "refId": "A",
+          "legendFormat": "queued",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Collection time and clock skew",
+      "id": 30,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 63
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "vmsotel_collection_duration_seconds{host_name=\"$host\"}",
+          "refId": "A",
+          "legendFormat": "collection",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "vmsotel_clock_skew_seconds{host_name=\"$host\"}",
+          "refId": "B",
+          "legendFormat": "clock skew",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "gradientMode": "opacity",
+            "showPoints": "never",
+            "spanNulls": 180000,
+            "lineInterpolation": "smooth",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}

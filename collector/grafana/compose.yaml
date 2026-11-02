@@ -1,0 +1,64 @@
+# The vmsotel collector with dashboards: OpenTelemetry Collector ->
+# Prometheus (metrics) and Loki (logs) -> Grafana.
+#
+#   cd collector/grafana && docker compose up -d
+#   Grafana: http://<this host>:3000  (admin / admin; it asks for a new one)
+#
+# The collector takes the same ports as collector/collector.yaml (4318
+# plain, 4319 TLS), so stop that one first. The TLS receiver needs
+# ../collector.crt and ../collector.key: run ../make-cert.sh once.
+#
+# Collector 0.111.0 is the version vmsotel was tested against, and the
+# one docs/operations.md's debug-output script looks for.
+
+services:
+  otelcol:
+    image: otel/opentelemetry-collector:0.111.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otelcol.yaml:/etc/otelcol/config.yaml:ro
+      - ../collector.crt:/etc/otelcol/collector.crt:ro
+      - ../collector.key:/etc/otelcol/collector.key:ro
+    ports:
+      - "4318:4318"
+      - "4319:4319"
+    depends_on: [prometheus, loki]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=90d
+      - --web.enable-otlp-receiver
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.0
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.0.0
+    volumes:
+      - ./provisioning:/etc/grafana/provisioning:ro
+      - ./dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on: [prometheus, loki]
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:

@@ -1,0 +1,27 @@
+# Prometheus takes vmsotel's metrics over OTLP (--web.enable-otlp-receiver);
+# it scrapes nothing.
+
+global:
+  # vmsotel's default interval. Grafana's datasource says the same, so
+  # rate() windows cover at least four exports.
+  scrape_interval: 60s
+
+otlp:
+  # Resource attributes that become labels on every series. Without
+  # these, all hosts' series would collide; process.* tell the chosen
+  # processes apart (each is its own resource).
+  promote_resource_attributes:
+    - host.name
+    - host.arch
+    - os.version
+    - openvms.scsnode
+    - openvms.process.name
+    - openvms.process.id
+    - process.pid
+    - process.owner
+
+storage:
+  tsdb:
+    # The agent queues exports while the collector is away and sends them
+    # late; accept those rather than drop them.
+    out_of_order_time_window: 30m
