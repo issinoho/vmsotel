@@ -10,7 +10,7 @@ product @PRODUCER@ @BASE@ VMSOTEL @PCSIVERSION@ full ;
     -- images (SSL3$LIBSSL_SHR32, SSL3$LIBCRYPTO_SHR32).
     software VSI @BASE@ SSL3 ;
 
-    information RELEASE_NOTES phase after ;
+    information RELEASE_NOTES phase after with helptext ;
 
     directory [VMSOTEL] ;
     directory [VMSOTEL.BIN] ;
@@ -40,6 +40,6 @@ product @PRODUCER@ @BASE@ VMSOTEL @PCSIVERSION@ full ;
     -- On removal: stop the agent, deassign VMSOTEL$ROOT and VMSOTEL$USER.
     execute install "CONTINUE" remove "@PCSI$DESTINATION:[SYS$STARTUP]VMSOTEL$STARTUP.COM REMOVE" ;
 
-    information POST_INSTALL phase after ;
+    information POST_INSTALL phase after with helptext ;
 
 end product ;
