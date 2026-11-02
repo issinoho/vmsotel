@@ -29,20 +29,31 @@ $ if arch .eqs. "X86_64" then archname = "x86-64"
 $ producer = "ISSINOHO"
 $!
 $! ---- the version, from src/model/version.h alone ----
+$! The value between the quotes. The quote character is made from its
+$! code, and the IFs are blocks: the command after a one-line THEN is
+$! parsed again, which ate a level of doubled quotes ("""" became ""),
+$! and the version read as a lone quote (x86, the first MAKE_KIT).
+$ q = " "
+$ q[0,8] = 34
 $ version = ""
 $ pcsiversion = ""
 $ open/read/error=no_version vh [.src.model]version.h
 $ vh_loop:
 $   read/end_of_file=vh_done vh line
-$   if f$locate("#define VO_VERSION ", line) .eq. 0 then -
-        version = f$element(1, """", line)
-$   if f$locate("#define VO_PCSI_VERSION ", line) .eq. 0 then -
-        pcsiversion = f$element(1, """", line)
+$   if f$locate("#define VO_VERSION ", line) .eq. 0
+$   then
+$       version = f$element(1, q, line)
+$   endif
+$   if f$locate("#define VO_PCSI_VERSION ", line) .eq. 0
+$   then
+$       pcsiversion = f$element(1, q, line)
+$   endif
 $   goto vh_loop
 $ vh_done:
 $ close vh
 $ no_version:
-$ if version .eqs. "" .or. pcsiversion .eqs. ""
+$ if version .eqs. "" .or. pcsiversion .eqs. "" .or. -
+     version .eqs. q .or. pcsiversion .eqs. q
 $ then
 $     say "MAKE_KIT: no VO_VERSION or VO_PCSI_VERSION in [.src.model]version.h"
 $     goto done
@@ -62,6 +73,7 @@ $   endif
 $   i = i + 1
 $   goto img_loop
 $ img_done:
+$ say "MAKE_KIT: version.h says ''version', PCSI ''pcsiversion'"
 $ agents = "VMSOTEL,VMSOTEL_TLS"
 $ i = 0
 $ ver_loop:
