@@ -3,7 +3,7 @@ $! to run again, and needed again when VMSOTEL.CONF asks for a privilege)
 $!
 $!   @VMSOTEL$ROOT:[COM]VMSOTEL$CONFIGURE [account] [uic] [autostart]
 $!     account    the agent's account (default VMSOTEL)
-$!     uic        its UIC, e.g. [376,1]: a group of its own, above
+$!     uic        its UIC, e.g. [360,1]: a group of its own, above
 $!                MAXSYSGROUP. Needed only when the account is new.
 $!     autostart  YES: VMSOTEL$STARTUP starts the agent at boot (default)
 $!   Missing values are asked for when run interactively.
@@ -123,12 +123,12 @@ $! ---- a new account ----
 $ new_account:
 $ uic = f$edit(p2, "UPCASE,TRIM")
 $ if uic .eqs. "" .and. interactive then -
-      inquire uic "UIC for ''account', a group of its own above ''maxsys_o' (e.g. [376,1])"
+      inquire uic "UIC for ''account', a group of its own above ''maxsys_o' (e.g. [360,1])"
 $ uic = f$edit(uic, "UPCASE,TRIM")
 $ if uic .eqs. "" .or. f$extract(0, 1, uic) .nes. "[" .or. -
      f$locate(",", uic) .eq. f$length(uic)
 $ then
-$     say "VMSOTEL$CONFIGURE: ''account' is a new account: give its UIC, e.g. [376,1]"
+$     say "VMSOTEL$CONFIGURE: ''account' is a new account: give its UIC, e.g. [360,1]"
 $     set protection=('old_prot')/default
 $     exit 44
 $ endif
@@ -137,6 +137,31 @@ $ if grp .le. maxsys
 $ then
 $     say "VMSOTEL$CONFIGURE: group ", f$fao("!OL", grp), " is a system group (MAXSYSGROUP is ", -
           maxsys_o, "): choose a group above it"
+$     set protection=('old_prot')/default
+$     exit 44
+$ endif
+$! A group of its own: accounts that share a group share its group
+$! access to files. [376,*], the obvious-looking choice, is where
+$! DECnet puts its server accounts (x86).
+$ grp_o = f$fao("!OL", grp)
+$ define/user sys$output 'work'
+$ define/user sys$error nl:      ! NOSUCHUSER, when the group is free
+$ define/user sysuaf 'uaf'
+$ mcr authorize show [''grp_o',*]/brief
+$ users = ""
+$ open/read f 'work'
+$ read_group:
+$   read/end_of_file=group_done f line
+$   if f$locate("[''grp_o',", line) .lt. f$length(line) then -
+        users = users + " " + f$element(0, " ", f$edit(f$extract(21, 16, line), "TRIM"))
+$   goto read_group
+$ group_done:
+$ close f
+$ delete/nolog 'work';*
+$ if users .nes. ""
+$ then
+$     say "VMSOTEL$CONFIGURE: group ''grp_o' already has accounts:''users'"
+$     say "  Choose a group no other account uses."
 $     set protection=('old_prot')/default
 $     exit 44
 $ endif

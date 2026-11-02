@@ -19,7 +19,7 @@ Setting up (as SYSTEM)
      $ @VMSOTEL$ROOT:[COM]VMSOTEL$CONFIGURE
 
    It asks for the account (default VMSOTEL) and, for a new account,
-   its UIC: choose a group of its own, above MAXSYSGROUP (e.g. [376,1]).
+   its UIC: choose a group of its own, above MAXSYSGROUP (e.g. [360,1]).
    The account cannot log in by any route; the agent still runs as it.
    Its authorized privileges are NETMBX and TMPMBX, plus WORLD and
    READALL only if VMSOTEL.CONF needs them -- so run it again whenever
