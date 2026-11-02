@@ -29,10 +29,12 @@ $ if arch .eqs. "X86_64" then archname = "x86-64"
 $ producer = "ISSINOHO"
 $!
 $! ---- the version, from src/model/version.h alone ----
-$! The value between the quotes. The quote character is made from its
-$! code, and the IFs are blocks: the command after a one-line THEN is
-$! parsed again, which ate a level of doubled quotes ("""" became ""),
-$! and the version read as a lone quote (x86, the first MAKE_KIT).
+$! The value between the quotes on the line that starts with the
+$! #define. Compared with f$extract, not f$locate(...) .eq. 0: f$locate
+$! returns the length when it finds nothing, which for an empty line is
+$! 0, so every blank line matched and the last set the version to
+$! f$element's "not there", the delimiter itself -- a lone quote (x86,
+$! the first two MAKE_KITs).
 $ q = " "
 $ q[0,8] = 34
 $ version = ""
@@ -40,11 +42,11 @@ $ pcsiversion = ""
 $ open/read/error=no_version vh [.src.model]version.h
 $ vh_loop:
 $   read/end_of_file=vh_done vh line
-$   if f$locate("#define VO_VERSION ", line) .eq. 0
+$   if f$extract(0, 19, line) .eqs. "#define VO_VERSION "
 $   then
 $       version = f$element(1, q, line)
 $   endif
-$   if f$locate("#define VO_PCSI_VERSION ", line) .eq. 0
+$   if f$extract(0, 24, line) .eqs. "#define VO_PCSI_VERSION "
 $   then
 $       pcsiversion = f$element(1, q, line)
 $   endif
