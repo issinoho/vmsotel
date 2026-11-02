@@ -88,6 +88,19 @@ what it changes in the design.
   synchronization lost`. Design: the agent must start at the end of the
   log, not the beginning, and resume by position (38); a filter for
   repeated events would help. Reported to the owner.
+  Cause, found on 2 November 2026 from the agent's own records in
+  Loki: DECnet Phase IV (MYI64 is `nonrouting IV`) had circuits on
+  three Ethernet ports with no cable. Counting `DECnet event` by
+  circuit gave exactly 30 per 5 minutes for each of EIA-0, EIA-1 and
+  EWA-0, down (4.7) and up (4.10) alike: each circuit failed and
+  restarted every 10 s, all three in step. `NCP SHOW KNOWN CIRCUITS`:
+  those three `on -synchronizing`, `Circuit down 127` (the counter
+  pegged), no traffic; their lines `Send failure >65534`, `Carrier
+  check failed`; LANCP: EIA0 and EWA0 `Link Down`. EWA-1 (device
+  EWB0, `Link Up`, TCP/IP's `WE1`) carried all the traffic with no
+  circuit down. `NCP SET` and `DEFINE CIRCUIT EIA-0, EIA-1, EWA-0
+  STATE OFF` at 21:46: the last DECnet event in Loki is 21:46:19, none
+  in the hour after. (EIA-1 is device EIB0, not checked with LANCP.)
 
 - **x86: `SYI$_BOOTTIME` is an hour out after a summer-time change.**
   probe_syi: `BOOTTIME … (2026-10-23 16:48:29 as written)`, `uptime
