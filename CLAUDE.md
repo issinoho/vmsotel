@@ -41,7 +41,8 @@ against the stub's files, which the agent self-test writes to while
 the agent reads them.
 
 The PCSI kit (`kit/`, `src/launch/launch.c`; `docs/design.md`, "The
-installation kit") is built and checked here but has not run on VMS.
+installation kit") has been built, installed, run and removed on x86
+(findings 45); not yet on I64.
 Installed, the agent runs as its own account, started by persona
 (`VMSOTEL_LAUNCH.EXE`), as vms-beszel's agent is. `VMSOTEL_START`,
 `_RUN` and `_STOP` serve both layouts. A file added to the kit touches
