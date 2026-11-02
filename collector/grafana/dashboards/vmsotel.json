@@ -1327,6 +1327,16 @@
           "refId": "A",
           "queryType": "range",
           "legendFormat": "{{openvms_audit_type}}"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "vector(0)",
+          "refId": "B",
+          "queryType": "range",
+          "legendFormat": "steps"
         }
       ],
       "fieldConfig": {
@@ -1410,6 +1420,22 @@
                 }
               }
             ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": true,
+                  "viz": true
+                }
+              }
+            ]
           }
         ]
       },
@@ -1423,7 +1449,9 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "interval": "1m",
+      "maxDataPoints": 60
     },
     {
       "type": "logs",

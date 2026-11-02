@@ -242,6 +242,13 @@ can be filtered on: `| openvms_audit_type="LOGFAIL"`. Both keep 90 days.
 The collector's debug output is still there (`docker compose logs
 otelcol`), so the checks below still work.
 
+Run on docker-nuc on 2 November 2026, with both machines sending. Every
+section of the dashboard showed I64's data: the system panels, the
+chosen processes (OPCOM, AUDIT_SERVER, VMSOTEL), a LOGFAIL from a
+deliberately wrong password, marked on the graphs, and OPCOM's DECnet
+circuit messages with OPCOM's own times. x86's logs reached Loki with
+its host label.
+
 ## Checking the numbers against MONITOR
 
 While the agent runs, take a two-minute MONITOR summary:
