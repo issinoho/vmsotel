@@ -25,7 +25,9 @@ $ arch = f$edit(f$getsyi("ARCH_NAME"), "UPCASE")
 $ base = "I64VMS"
 $ archname = "Integrity"
 $ if arch .eqs. "X86_64" then base = "X86VMS"
+$ if arch .eqs. "ALPHA" then base = "AXPVMS"
 $ if arch .eqs. "X86_64" then archname = "x86-64"
+$ if arch .eqs. "ALPHA" then archname = "Alpha"
 $ producer = "ISSINOHO"
 $!
 $! ---- the version, from src/model/version.h alone ----
