@@ -39,4 +39,5 @@
 #define RMI$_COLPG 156
 #define RMI$_MWAIT 157
 #define RMI$_CEF 158
+#define RMI$_MODES 186
 #endif

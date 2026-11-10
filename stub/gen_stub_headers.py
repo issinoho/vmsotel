@@ -14,9 +14,13 @@ UNDECLARED = {"SYI$_FREE_PAGES", "RMI$_TRANSFLTS", "DVI$_VOLSIZE",
 HDR = {"SYI": "syidef.h", "RMI": "rmidef.h", "JPI": "jpidef.h",
        "DVI": "dvidef.h"}
 
+# Declared but not in the probes' item tables: probe_rmi asks for it
+# on its own, as its value is a structure.
+EXTRA = ["RMI$_MODES"]
+
 out = {h: [] for h in HDR.values()}
 code = 100
-for n in names:
+for n in names + EXTRA:
     code += 1
     if n not in UNDECLARED:
         out[HDR[n[:3]]].append(f"#define {n} {code}")

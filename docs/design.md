@@ -491,6 +491,46 @@ and the numbers in MONITOR are the other end.
 4. **Application instrumentation** — a small C library VMS applications
    link to emit their own metrics and spans through the same transport.
 
+## VAX
+
+Probed, not built (findings, "VAX"): OpenVMS V7.3 with Compaq C V6.4
+on a SIMH VAXserver 3900. The probes now build and run there; the agent
+does not yet. What a port needs, from what the probes showed:
+
+- **No 64-bit integer type.** `long long` and `__int64` do not compile.
+  `vo_u64` (`src/model/vo_types.h`) becomes an opaque type with a few
+  operations — add, subtract, compare, multiply and divide by a
+  longword, decimal — that are plain `unsigned long long` arithmetic
+  elsewhere and a pair of longwords on VAX, as `probe_q` is in the
+  probes. `make check` would build the pair version on Linux too, so
+  the golden payloads test the VAX arithmetic. The encoder already
+  uses no floating point.
+- **No `snprintf` or `vsnprintf`**: a small bounded formatter of our
+  own, for the conversions the agent uses.
+- **C89**: `/STANDARD=C99` is refused. The agent is C89 already apart
+  from the two points above.
+- **CPU time by mode comes from `RMI$_MODES`**, not the `RMI$_CPU*`
+  items, which VAX does not declare: 4 reserved bytes, then per CPU a
+  33-byte record — CPU ID byte, then longwords interrupt (including
+  idle), MP synch, kernel, exec, super, user, reserved, idle. Interrupt
+  minus idle is `cpu.mode=interrupt`. The reserved longword sits where
+  MONITOR shows compatibility mode; it was 0 in every run. VAX's `<starlet.h>` has no
+  prototype for `sys$getrmi`, so the source declares one. The other
+  `RMI$_` items the agent reads are accepted, written as quadwords,
+  with no return length written.
+- **Name lookup without `getaddrinfo`.** It links, but fails even for a
+  dotted address (`11`, no message), and only links at all without
+  `_SOCKADDR_LEN`. `inet_addr`, then `gethostbyname`, connected.
+- **No TLS**: no OpenSSL for VAX, so plain HTTP only, and no
+  `VMSOTEL_TLS.EXE` in a VAX build or kit.
+- **The operator log reaches its file 10–12 minutes after OPCOM stamps
+  a message** (findings V17), so `logs.opcom` lags by that much there.
+  The audit journal reads and decodes as on the other two.
+- The build files: no `/STANDARD=C99`, no `/POINTER_SIZE` (pointers are
+  always 32 bits), no `_SOCKADDR_LEN`; `host.arch` `vax`; the kit's
+  base `VAXVMS`. Persona services (`launch.c`) and PCSI on V7.3 are
+  not probed yet.
+
 ## Open questions
 
 | Question | Answered by |
@@ -502,7 +542,7 @@ and the numbers in MONITOR are the other end.
 | ~~`JPI$_PPGCNT`: pages or pagelets~~ — pagelets on both | `probe_jpi` beside `SHOW SYSTEM` |
 | ~~How many processes an unprivileged scan sees~~ — the user's own, on both | `probe_jpi` |
 | ~~Does `$DEVICE_SCAN` by class find every disk~~ — yes, plus LD devices on x86; shadow items accepted but untested | `probe_dvi` beside `SHOW DEVICE D` |
-| ~~Does `printf` support `%llu`~~ — yes | every probe's first line |
+| ~~Does `printf` support `%llu`~~ — yes on x86 and I64 (findings 2); the probes now check `probe_q` instead, as VAX has no `long long` | every probe's first line |
 | ~~TCP and an HTTP exchange to the collector~~ — yes, and every point decoded on the collector | `probe_otlp` |
 | ~~libssl image names; TLS handshake~~ — SSL3 (3.0.21 / 3.0.22), TLS 1.3 | `probe_otlp_tls`, `build_probes.com` |
 | ~~Which clock is wrong~~ — the VMS ones: x86 7 s, I64 13 s slow | laptop vs collector `Date` |

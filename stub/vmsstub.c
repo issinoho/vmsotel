@@ -168,6 +168,36 @@ int sys$getrmi(unsigned int efn, unsigned int csidadr, unsigned int nodename,
         int quad = 0;
         unsigned i, n;
 
+        /* The documented layout: 4 reserved bytes, then per CPU a
+           byte of ID and eight longwords, interrupt counting idle too.
+           The values are invented. */
+        if (e->code == RMI$_MODES) {
+            unsigned char m[4 + 2 * 33];
+            unsigned long long c = ticks / 2;
+            unsigned int mode[8];
+            unsigned cpu, k;
+
+            memset(mode, 0, sizeof mode);
+            mode[2] = (unsigned int) (c / 8);
+            mode[3] = (unsigned int) (c / 16);
+            mode[5] = (unsigned int) (c / 4);
+            mode[7] = (unsigned int) (c - c / 4 - c / 8 - c / 16);
+            mode[0] = mode[7];          /* interrupt includes idle */
+            memset(m, 0, sizeof m);
+            m[0] = 2;
+            for (cpu = 0; cpu < 2; cpu++) {
+                m[4 + cpu * 33] = (unsigned char) cpu;
+                for (k = 0; k < 8; k++)
+                    for (i = 0; i < 4; i++)
+                        m[4 + cpu * 33 + 1 + 4 * k + i] =
+                            (unsigned char) (mode[k] >> (8 * i));
+            }
+            n = e->len < sizeof m ? e->len : (unsigned) sizeof m;
+            memcpy(e->buf, m, n);
+            if (e->retlen)
+                *(unsigned int *) (void *) e->retlen = n;
+            continue;
+        }
         switch (e->code) {
         case RMI$_CPUUSER:   v = ticks / 4; quad = 1; break;
         case RMI$_CPUKERNEL: v = ticks / 8; quad = 1; break;

@@ -23,7 +23,7 @@
 
 #include "items_syi.h"
 
-static unsigned long long boottime = 0;
+static probe_q boottime;     /* zero until read */
 
 static void query_items(void)
 {
@@ -66,24 +66,24 @@ static void query_items(void)
     }
 }
 
-static void show_utc(const char *label, long long unix_seconds)
+static void show_utc(const char *label, long unix_seconds)
 {
     time_t t = (time_t) unix_seconds;
     struct tm *tm = gmtime(&t);
 
     if (tm == NULL) {
-        printf("  %-34s %lld (gmtime failed)\n", label, unix_seconds);
+        printf("  %-34s %ld (gmtime failed)\n", label, unix_seconds);
         return;
     }
-    printf("  %-34s %lld  %04d-%02d-%02dT%02d:%02d:%02dZ\n", label,
+    printf("  %-34s %ld  %04d-%02d-%02dT%02d:%02d:%02dZ\n", label,
            unix_seconds, tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
            tm->tm_hour, tm->tm_min, tm->tm_sec);
 }
 
 static void check_clock(void)
 {
-    unsigned long long now = 0;
-    long long from_time, local_secs, tdf = 0;
+    probe_q now;
+    long from_time, local_secs, tdf = 0;
     const char *tdf_s = getenv("SYS$TIMEZONE_DIFFERENTIAL");
     const char *tz_name = getenv("SYS$TIMEZONE_NAME");
     const char *tz_rule = getenv("TZ");
@@ -106,12 +106,13 @@ static void check_clock(void)
         have_tdf = 1;
     }
 
-    from_time = (long long) time(NULL);
-    if (!(sys$gettim((void *) &now) & 1)) {
+    from_time = (long) time(NULL);
+    now = probe_gettim();
+    if (now.hi == 0 && now.lo == 0) {
         probe_fail("$GETTIM");
         return;
     }
-    local_secs = (long long) ((now - PROBE_VMS_TO_UNIX) / 10000000ULL);
+    local_secs = probe_vms_to_unix_s(now);
 
     show_utc("time()", from_time);
     show_utc("$GETTIM read as if UTC", local_secs);
@@ -124,10 +125,10 @@ static void check_clock(void)
      * nonzero, time() is local, not UTC, and the agent must correct it.
      */
     if (have_tdf) {
-        long long d = from_time - (local_secs - tdf);
+        long d = from_time - (local_secs - tdf);
 
         if (d < -2 || d > 2) {
-            printf("  time() differs from local-minus-differential by %lld s\n", d);
+            printf("  time() differs from local-minus-differential by %ld s\n", d);
             probe_fail("time() is not UTC as the differential describes it");
         } else if (tdf == 0) {
             /* Local time and UTC are the same now, so agreement says
@@ -142,14 +143,18 @@ static void check_clock(void)
                "`date -u` on docker-nuc\n");
     }
 
-    if (boottime != 0 && now > boottime) {
-        unsigned long long up = (now - boottime) / 10000000ULL;
+    if ((boottime.hi != 0 || boottime.lo != 0) &&
+        probe_q_cmp(now, boottime) > 0) {
+        probe_q q = probe_q_sub(now, boottime);
+        unsigned long up;
 
-        printf("  uptime                             %llu s (%llu d %02llu:%02llu)\n",
+        probe_q_div(&q, 10000000u);
+        up = (unsigned long) q.lo;      /* seconds: 136 years fit */
+        printf("  uptime                             %lu s (%lu d %02lu:%02lu)\n",
                up, up / 86400, (up % 86400) / 3600, (up % 3600) / 60);
         if (have_tdf)
             show_utc("boot time, UTC (today's differential)",
-                     (long long) ((boottime - PROBE_VMS_TO_UNIX) / 10000000ULL) - tdf);
+                     probe_vms_to_unix_s(boottime) - tdf);
         /* No unprivileged second source for uptime here, so this is
            not a pass: SHOW SYSTEM, run by build_probes, prints its own
            Uptime to compare with. On x86 they differed by an hour after

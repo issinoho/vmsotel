@@ -56,6 +56,15 @@ $! each probe checks that at run time.
 $!
 $ cc_base = "/STANDARD=C99/PREFIX_LIBRARY_ENTRIES=ALL_ENTRIES" + -
             "/INCLUDE_DIRECTORY=([.probes])"
+$!
+$! VAX: Compaq C V6.4 refuses /STANDARD=C99 (%CC-W-C99NAONVAX) and has
+$! no 64-bit integers; the probes are C89 without them for this reason,
+$! and make check holds them to it. RELAXED_ANSI89 keeps '$' in names.
+$! /POINTER_SIZE does not exist there: pointers are always 32 bits.
+$ arch = f$getsyi("ARCH_NAME")
+$ if arch .eqs. "VAX" then -
+      cc_base = "/STANDARD=RELAXED_ANSI89/PREFIX_LIBRARY_ENTRIES=ALL_ENTRIES" + -
+                "/INCLUDE_DIRECTORY=([.probes])"
 $ built = ""
 $ failed = ""
 $!
@@ -88,6 +97,10 @@ $! sockaddr_storage); getaddrinfo needs them.
 $ pname = "probe_otlp"
 $ psrc = "probe_otlp"
 $ pflags = "/DEFINE=(_SOCKADDR_LEN)"
+$! VAX: with _SOCKADDR_LEN, getaddrinfo becomes __BSD44_GETADDRINFO,
+$! which TCP/IP Services V5.1 for VAX does not have (undefined at
+$! link); the plain getaddrinfo links.
+$ if arch .eqs. "VAX" then pflags = ""
 $ plink = ""
 $ gosub build_one_src
 $!
@@ -101,6 +114,12 @@ $! OPENSSL and nothing else -- the kits ship headers flat in [INCLUDE]
 $! and VSI C turns <openssl/ssl.h> into openssl:ssl.h -- so it is
 $! defined here to match the image found, and deassigned on the way out.
 $!
+$! No OpenSSL was ever shipped for VAX.
+$ if arch .eqs. "VAX"
+$ then
+$     say "  VAX: no OpenSSL; probe_otlp_tls not built"
+$     goto summary
+$ endif
 $ ssl_candidates = "SYS$LIBRARY:SSL3$LIBSSL_SHR32,SYS$SHARE:SSL3$LIBSSL_SHR32," + -
                    "SYS$LIBRARY:SSL31$LIBSSL_SHR32,SYS$SHARE:SSL31$LIBSSL_SHR32," + -
                    "SYS$LIBRARY:SSL111$LIBSSL_SHR32,SYS$SHARE:SSL111$LIBSSL_SHR32," + -

@@ -27,7 +27,7 @@
 
 typedef struct {
     char name[65];
-    unsigned long long opcnt0;
+    unsigned int opcnt0;            /* DVI$_OPCNT, a longword */
     int have_opcnt;
 } disk_row;
 
@@ -133,7 +133,7 @@ static void describe(void)
             probe_print_value(it, buf, retlen);
             printf("\n");
             if (strcmp(it->name, "DVI$_OPCNT") == 0) {
-                disks[k].opcnt0 = probe_le(buf, 4);
+                disks[k].opcnt0 = probe_le32(buf, 4);
                 disks[k].have_opcnt = 1;
             }
         }
@@ -162,10 +162,10 @@ static void opcnt_delta(void)
             continue;
         memset(buf, 0, sizeof buf);
         if (getdvi_one(disks[k].name, op, buf, &retlen) & 1) {
-            unsigned long long v = probe_le(buf, 4);
+            unsigned int v = probe_le32(buf, 4);
 
-            printf("  %-24s %12llu -> %12llu  (+%lld)\n", disks[k].name,
-                   disks[k].opcnt0, v, (long long) (v - disks[k].opcnt0));
+            printf("  %-24s %12u -> %12u  (+%u)\n", disks[k].name,
+                   disks[k].opcnt0, v, v - disks[k].opcnt0);
         }
     }
 }

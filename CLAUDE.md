@@ -96,15 +96,25 @@ not weaken that further.
 
 ## The machines
 
-You cannot reach any of them. The workflow: develop and test on Linux,
+You cannot reach x86 or I64. The workflow: develop and test on Linux,
 the user runs on OpenVMS and pastes the output back.
 
-| | x86-64 | Itanium rx2660 |
-| --- | --- | --- |
-| OS | E9.2-4 (a QEMU guest) | V8.4-2L3 |
-| C | VSI C V7.7-003 | VSI C V7.4-001 |
-| TCP/IP | V6.0-30 | V6.0-31 |
-| LAN interface | `IE0`, 192.168.0.80 | `WE1` |
+| | x86-64 | Itanium rx2660 | VAX |
+| --- | --- | --- | --- |
+| OS | E9.2-4 (a QEMU guest) | V8.4-2L3 | V7.3 (SIMH VAXserver 3900) |
+| C | VSI C V7.7-003 | VSI C V7.4-001 | Compaq C V6.4-005 |
+| TCP/IP | V6.0-30 | V6.0-31 | V5.1 |
+| LAN interface | `IE0`, 192.168.0.80 | `WE1` | `XQA0`, 192.168.0.98 |
+
+The VAX (probes only so far; `docs/findings.md`, "VAX") can be driven
+from here, with the user's say-so, by
+`~/projects/vms-site-config/tools/vax.py` (Telnet and FTP; it has no
+SSH): `vax.py put LOCAL 'SYS$SYSDEVICE:[WORK.VMSOTEL]name'`, then
+`vax.py dcl '@SYS$SYSDEVICE:[WORK.VMSOTEL]build_probes RUN'`. Set
+`TMPDIR` to the scratchpad. A run is cut off after `VAX_TIMEOUT`
+seconds (600), shorter than `build_probes LOGS`; give it 1700. Other
+projects (vms-hass) use the same VAX at the same time: keep to
+`[WORK.VMSOTEL]` and leave their `VAXRUN_*` files alone.
 
 The test collector runs in Docker on **docker-nuc, 192.168.0.218**
 (not the development laptop). The probes default to it: port 4318 for
@@ -117,6 +127,11 @@ compiler.
 
 ## Hard constraints
 
+- **The probes are C89 with no 64-bit integer type**, so they build on
+  VAX, whose compiler has neither `long long` nor `__int64` nor
+  `snprintf`. Quadwords are `probe_q`; `make check` compiles every
+  probe with `-std=c89 -Wlong-long -Werror`. The agent is not yet held
+  to this; `docs/design.md`, "VAX", says what it would take.
 - **C99, not C11.** VSI C is GEM-based. No `_Generic`,
   `_Static_assert`, anonymous structs or unions, VLAs, C11 atomics or
   `<threads.h>`.

@@ -10,7 +10,11 @@
  * whole item list with SS$_BADPARAM, which would hide every good item
  * behind the one bad one.
  *
- * C99. The helpers live in vmsprobe.c, linked into every probe.
+ * C89 and no 64-bit integer type, so that the same probes build on
+ * VAX, where Compaq C V6.4 has neither long long nor __int64
+ * (vms-hass NOTES.md 15). Quadwords are a pair of longwords, probe_q,
+ * on every machine, so the VAX arithmetic is the arithmetic tested on
+ * Linux. The helpers live in vmsprobe.c, linked into every probe.
  */
 
 #ifndef VMSPROBE_H
@@ -60,17 +64,52 @@ typedef struct {
 } probe_item;
 
 /*
- * Offset between the VMS and Unix epochs in 100 ns units:
- * 40587 days (the Modified Julian Day of 1970-01-01) x 86400 s x 10^7.
+ * An unsigned quadword as two longwords. unsigned int is 32 bits on
+ * every VMS architecture and on Linux (unsigned long is 64 on Linux);
+ * probe_banner() checks that, and the arithmetic, at run time.
  */
-#define PROBE_VMS_TO_UNIX 35067168000000000ULL
+typedef struct {
+    unsigned int lo, hi;
+} probe_q;
+
+/* Big enough for 18446744073709551615 and a sign. */
+#define PROBE_Q_DIGITS 22
+
+/*
+ * Offset between the VMS and Unix epochs in 100 ns units:
+ * 40587 days (the Modified Julian Day of 1970-01-01) x 86400 s x 10^7
+ * = 35067168000000000 = 0x007C95674BEB4000.
+ */
+#define PROBE_VMS_TO_UNIX_HI 0x007C9567u
+#define PROBE_VMS_TO_UNIX_LO 0x4BEB4000u
 
 extern int probe_failures;
 
 void probe_ok(const char *what);
 void probe_fail(const char *what);
 const char *probe_msg(unsigned int status);
-unsigned long long probe_le(const unsigned char *b, unsigned n);
+
+/* Little-endian read of up to 8 bytes, or of up to 4 for the second. */
+probe_q probe_le(const unsigned char *b, unsigned n);
+unsigned int probe_le32(const unsigned char *b, unsigned n);
+
+probe_q probe_q_make(unsigned int hi, unsigned int lo);
+probe_q probe_q_add(probe_q a, probe_q b);
+probe_q probe_q_sub(probe_q a, probe_q b);         /* modulo 2^64 */
+int probe_q_cmp(probe_q a, probe_q b);             /* -1, 0 or 1 */
+/* Divides *q by d in place, 0 < d < 2^31, and returns the remainder. */
+unsigned int probe_q_div(probe_q *q, unsigned int d);
+double probe_q_double(probe_q q);
+/* Decimal into buf, at least PROBE_Q_DIGITS bytes; returns buf. */
+char *probe_q_str(probe_q q, char *buf);
+/* b - a as "+N" or "-N", for a delta that may run backwards. */
+char *probe_q_delta_str(probe_q a, probe_q b, char *buf);
+
+/* $GETTIM as a quadword. */
+probe_q probe_gettim(void);
+/* A VMS time as Unix seconds, as written (local, not corrected).
+   0 when it is before 1970. */
+long probe_vms_to_unix_s(probe_q t);
 void probe_print_value(const probe_item *it, const unsigned char *buf,
                        unsigned short retlen);
 int probe_check_ile(void);

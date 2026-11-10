@@ -18,6 +18,7 @@
  *
  * Usage:
  *   probe_otlp [--host H] [--port N] [--path P] [--tls] [--cafile F]
+ *              [--no-getaddrinfo]
  * Defaults are the test collector on docker-nuc (192.168.0.218).
  */
 
@@ -84,7 +85,15 @@ static void json_string(char *out, size_t cap, const char *s)
  * aggregationTemporality 2 is CUMULATIVE, which is what every VMS
  * counter naturally is.
  */
-static int build_payload(char *out, size_t cap, long long unix_now,
+/*
+ * sprintf, not snprintf: the VAX C library has neither snprintf nor
+ * vsnprintf (vms-hass NOTES.md 15). The bound is checked here instead.
+ * Everything but host_json and transport is fixed text and three
+ * numbers of at most 11 characters.
+ */
+#define PAYLOAD_FIXED 1500
+
+static int build_payload(char *out, size_t cap, long unix_now,
                          const char *transport)
 {
     char host[256], host_json[1600];
@@ -94,8 +103,10 @@ static int build_payload(char *out, size_t cap, long long unix_now,
         strcpy(host, "unknown");
     host[sizeof host - 1] = '\0';
     json_string(host_json, sizeof host_json, host);
+    if (strlen(host_json) + strlen(transport) + PAYLOAD_FIXED >= cap)
+        return -1;
 
-    n = snprintf(out, cap,
+    n = sprintf(out,
         "{\"resourceMetrics\":[{"
           "\"resource\":{\"attributes\":["
             "{\"key\":\"service.name\",\"value\":{\"stringValue\":\"vmsotel-probe\"}},"
@@ -107,14 +118,14 @@ static int build_payload(char *out, size_t cap, long long unix_now,
             "\"metrics\":["
               "{\"name\":\"vmsotel.probe.heartbeat\",\"unit\":\"1\","
                "\"gauge\":{\"dataPoints\":[{"
-                 "\"timeUnixNano\":\"%lld000000000\",\"asInt\":\"1\"}]}},"
+                 "\"timeUnixNano\":\"%ld000000000\",\"asInt\":\"1\"}]}},"
               "{\"name\":\"vmsotel.probe.exports\",\"unit\":\"{request}\","
                "\"sum\":{\"aggregationTemporality\":2,\"isMonotonic\":true,"
                 "\"dataPoints\":[{"
                   "\"attributes\":[{\"key\":\"vmsotel.transport\","
                                    "\"value\":{\"stringValue\":\"%s\"}}],"
-                  "\"startTimeUnixNano\":\"%lld000000000\","
-                  "\"timeUnixNano\":\"%lld000000000\",\"asInt\":\"1\"}]}}"
+                  "\"startTimeUnixNano\":\"%ld000000000\","
+                  "\"timeUnixNano\":\"%ld000000000\",\"asInt\":\"1\"}]}}"
             "]"
           "}]"
         "}]}",
@@ -133,33 +144,86 @@ typedef struct {
 #endif
 } conn;
 
-static int conn_tcp(conn *c, const char *host, const char *port)
+/* One getaddrinfo attempt with the given family. 1 if connected. */
+static int try_getaddrinfo(conn *c, const char *host, const char *port,
+                           int family, const char *label)
 {
     struct addrinfo hints, *res = NULL, *ai;
     int rc;
+    const char *why;
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = family;
     hints.ai_socktype = SOCK_STREAM;
     rc = getaddrinfo(host, port, &hints, &res);
     if (rc != 0) {
-        printf("  getaddrinfo(%s, %s): %s\n", host, port, gai_strerror(rc));
-        fail("resolve collector address");
+        /* On VAX gai_strerror returned NULL; print the code too. */
+        why = gai_strerror(rc);
+        printf("  no    getaddrinfo, %s: %d, %s\n", label, rc,
+               why != NULL ? why : "(no message)");
         return 0;
     }
-    c->fd = -1;
-    for (ai = res; ai != NULL; ai = ai->ai_next) {
+    for (ai = res; ai != NULL && c->fd < 0; ai = ai->ai_next) {
         c->fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
         if (c->fd < 0)
             continue;
-        if (connect(c->fd, ai->ai_addr, ai->ai_addrlen) == 0)
-            break;
+        if (connect(c->fd, ai->ai_addr, ai->ai_addrlen) != 0) {
+            printf("  connect: %s\n", strerror(errno));
+            close(c->fd);
+            c->fd = -1;
+        }
+    }
+    freeaddrinfo(res);
+    if (c->fd >= 0)
+        printf("  ok    connected through getaddrinfo, %s\n", label);
+    return c->fd >= 0;
+}
+
+/* The older way: inet_addr for a dotted quad, else gethostbyname. */
+static int try_hostent(conn *c, const char *host, const char *port)
+{
+    struct sockaddr_in sin;
+    unsigned int a = (unsigned int) inet_addr(host);   /* 32 bits */
+
+    memset(&sin, 0, sizeof sin);
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons((unsigned short) atoi(port));
+    if (a != 0xFFFFFFFFu) {
+        memcpy(&sin.sin_addr, &a, 4);   /* network order already */
+    } else {
+        struct hostent *h = gethostbyname(host);
+
+        if (h == NULL || h->h_addrtype != AF_INET || h->h_length != 4) {
+            printf("  no    gethostbyname(%s)\n", host);
+            return 0;
+        }
+        memcpy(&sin.sin_addr, h->h_addr_list[0], 4);
+    }
+    c->fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (c->fd < 0)
+        return 0;
+    if (connect(c->fd, (struct sockaddr *) &sin, sizeof sin) != 0) {
         printf("  connect: %s\n", strerror(errno));
         close(c->fd);
         c->fd = -1;
+        return 0;
     }
-    freeaddrinfo(res);
-    if (c->fd < 0) {
+    printf("  ok    connected through inet_addr/gethostbyname\n");
+    return 1;
+}
+
+/*
+ * getaddrinfo first, as the agent uses it; if it fails, AF_INET only;
+ * then inet_addr/gethostbyname. Each attempt is printed, so one run
+ * says which of them works here. --no-getaddrinfo skips to the last,
+ * which is how the fallback is tested on Linux.
+ */
+static int conn_tcp(conn *c, const char *host, const char *port, int use_gai)
+{
+    c->fd = -1;
+    if (!(use_gai && (try_getaddrinfo(c, host, port, AF_UNSPEC, "AF_UNSPEC") ||
+                      try_getaddrinfo(c, host, port, AF_INET, "AF_INET"))) &&
+        !try_hostent(c, host, port)) {
         fail("TCP connect to collector");
         return 0;
     }
@@ -304,7 +368,7 @@ static void conn_close(conn *c)
 /* Days since 1970-01-01 of a proleptic Gregorian date. C99 has no
    timegm, and mktime would apply the local zone we are trying to
    measure. */
-static long long days_from_civil(int y, int m, int d)
+static long days_from_civil(int y, int m, int d)
 {
     int era, yoe, doy, doe;
 
@@ -313,11 +377,11 @@ static long long days_from_civil(int y, int m, int d)
     yoe = y - era * 400;
     doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
     doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return (long long) era * 146097 + doe - 719468;
+    return (long) era * 146097 + doe - 719468;
 }
 
 /* "Date: Sat, 31 Oct 2026 12:34:56 GMT" (RFC 9110 IMF-fixdate). */
-static int parse_http_date(const char *s, long long *out)
+static int parse_http_date(const char *s, long *out)
 {
     static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
     char mon[4];
@@ -329,8 +393,8 @@ static int parse_http_date(const char *s, long long *out)
     p = strstr(months, mon);
     if (p == NULL || (p - months) % 3 != 0)
         return 0;
-    *out = days_from_civil(y, (int) ((p - months) / 3) + 1, d) * 86400LL +
-           hh * 3600LL + mm * 60LL + ss;
+    *out = days_from_civil(y, (int) ((p - months) / 3) + 1, d) * 86400L +
+           hh * 3600L + mm * 60L + ss;
     return 1;
 }
 
@@ -356,7 +420,7 @@ static const char *find_header(const char *head, const char *name)
     return NULL;
 }
 
-static void check_response(char *resp, size_t n, long long sent_at)
+static void check_response(char *resp, size_t n, long sent_at)
 {
     char *body = strstr(resp, "\r\n\r\n");
     int code = 0;
@@ -389,12 +453,12 @@ static void check_response(char *resp, size_t n, long long sent_at)
 
     date = find_header(resp, "Date");
     if (date != NULL) {
-        long long server;
+        long server;
 
         if (parse_http_date(date, &server)) {
-            long long skew = sent_at - server;
+            long skew = sent_at - server;
 
-            printf("  clock skew: ours minus collector's = %lld s\n", skew);
+            printf("  clock skew: ours minus collector's = %ld s\n", skew);
             if (skew >= -2 && skew <= 2)
                 ok("clock agrees with collector within 2 s");
             else
@@ -411,10 +475,10 @@ int main(int argc, char **argv)
 {
     const char *host = DEFAULT_HOST, *port = DEFAULT_PORT, *path = DEFAULT_PATH;
     const char *cafile = NULL;
-    int tls = 0, i;
+    int tls = 0, use_gai = 1, i;
     static char payload[8192], request[10240], resp[65536];
     int plen, rlen;
-    long long now;
+    long now;       /* Unix seconds: a long holds them until 2038 */
     conn c;
 
     for (i = 1; i < argc; i++) {
@@ -423,9 +487,10 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "--path") == 0 && i + 1 < argc)   path = argv[++i];
         else if (strcmp(argv[i], "--cafile") == 0 && i + 1 < argc) cafile = argv[++i];
         else if (strcmp(argv[i], "--tls") == 0)                    tls = 1;
+        else if (strcmp(argv[i], "--no-getaddrinfo") == 0)         use_gai = 0;
         else {
-            printf("usage: %s [--host H] [--port N] [--path P] [--tls] [--cafile F]\n",
-                   argv[0]);
+            printf("usage: %s [--host H] [--port N] [--path P] [--tls] "
+                   "[--cafile F] [--no-getaddrinfo]\n", argv[0]);
             return EXIT_FAILURE;
         }
     }
@@ -439,13 +504,19 @@ int main(int argc, char **argv)
     printf("vmsotel probe_otlp%s -> %s://%s:%s%s\n", tls ? " (TLS)" : "",
            tls ? "https" : "http", host, port, path);
 
-    now = (long long) time(NULL);
+    now = (long) time(NULL);
     plen = build_payload(payload, sizeof payload, now, tls ? "https" : "http");
     if (plen < 0) {
         fail("payload too large");
         return EXIT_FAILURE;
     }
-    rlen = snprintf(request, sizeof request,
+    /* The fixed text is under 200 characters; see build_payload. */
+    if (strlen(path) + strlen(host) + strlen(port) + (size_t) plen + 200 >=
+        sizeof request) {
+        fail("request too large");
+        return EXIT_FAILURE;
+    }
+    rlen = sprintf(request,
                     "POST %s HTTP/1.1\r\n"
                     "Host: %s:%s\r\n"
                     "User-Agent: vmsotel-probe/0.1\r\n"
@@ -460,7 +531,7 @@ int main(int argc, char **argv)
 
     memset(&c, 0, sizeof c);
     c.fd = -1;
-    if (!conn_tcp(&c, host, port))
+    if (!conn_tcp(&c, host, port, use_gai))
         goto done;
 #ifdef WITH_TLS
     if (tls && !conn_tls(&c, host, cafile))

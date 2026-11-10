@@ -226,6 +226,10 @@ def selftest(plain, tls):
            [plain] + base, False, ["clock skew: ours minus collector's = -36"])
     State.date_offset = 0
 
+    expect("plain export through inet_addr, without getaddrinfo",
+           [plain, "--no-getaddrinfo"] + base, True,
+           ["HTTP 200", "through inet_addr/gethostbyname"])
+
     expect("plain image refuses --tls", [plain, "--tls"] + base, False)
     srv.shutdown()
 

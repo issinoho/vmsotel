@@ -31,7 +31,7 @@ typedef struct {
     unsigned int pid;
     char name[16];
     char user[13];
-    unsigned long long cputim, pages, state;
+    unsigned int cputim, pages, state;      /* longwords, all three */
 } proc_row;
 
 static proc_row rows[MAX_PROCS];
@@ -112,7 +112,7 @@ static void scan(void)
     probe_ile3 ile[NW + 1];
     int slot_of[NW];
     unsigned int pid = 0xFFFFFFFFu;   /* -1: start a wildcard scan */
-    unsigned long long t0 = 0, t1 = 0;
+    probe_q t0, t1;
     unsigned long seen = 0, nopriv = 0, suspended = 0, gone = 0, other = 0;
     size_t i, n = 0;
 
@@ -136,7 +136,7 @@ static void scan(void)
     }
 
     printf("\nwildcard scan\n");
-    sys$gettim((void *) &t0);
+    t0 = probe_gettim();
     for (;;) {
         unsigned short iosb[4] = { 0, 0, 0, 0 };
         unsigned int st;
@@ -165,23 +165,24 @@ static void scan(void)
             proc_row *r = &rows[nrows++];
 
             memset(r, 0, sizeof *r);
-            r->pid = (unsigned int) probe_le(bufs[0], 4);
+            r->pid = probe_le32(bufs[0], 4);
             if (slot_of[1] >= 0) copy_text(r->name, sizeof r->name, bufs[1], lens[1]);
             if (slot_of[2] >= 0) copy_text(r->user, sizeof r->user, bufs[2], lens[2]);
-            if (slot_of[3] >= 0) r->cputim = probe_le(bufs[3], 4);
-            if (slot_of[4] >= 0) r->pages += probe_le(bufs[4], 4);
-            if (slot_of[5] >= 0) r->pages += probe_le(bufs[5], 4);
-            if (slot_of[6] >= 0) r->state = probe_le(bufs[6], 4);
+            if (slot_of[3] >= 0) r->cputim = probe_le32(bufs[3], 4);
+            if (slot_of[4] >= 0) r->pages += probe_le32(bufs[4], 4);
+            if (slot_of[5] >= 0) r->pages += probe_le32(bufs[5], 4);
+            if (slot_of[6] >= 0) r->state = probe_le32(bufs[6], 4);
         }
     }
-    sys$gettim((void *) &t1);
+    t1 = probe_gettim();
 
     printf("  processes returned  %lu\n", seen);
     printf("  NOPRIV              %lu\n", nopriv);
     printf("  SUSPENDED           %lu\n", suspended);
     printf("  gone mid-scan       %lu\n", gone);
     printf("  other errors        %lu\n", other);
-    printf("  scan took           %.1f ms\n", (double) (t1 - t0) / 1e4);
+    printf("  scan took           %.1f ms\n",
+           probe_q_double(probe_q_sub(t1, t0)) / 1e4);
     if (seen > 0)
         probe_ok("wildcard $GETJPIW scan completes");
     else
@@ -209,7 +210,7 @@ static void top_by_memory(void)
         rows[best] = tmp;
     }
     for (i = 0; i < shown; i++)
-        printf("  %08X %-15s %-12s %10llu %12llu %6llu\n", rows[i].pid,
+        printf("  %08X %-15s %-12s %10u %12u %6u\n", rows[i].pid,
                rows[i].name, rows[i].user, rows[i].pages, rows[i].cputim,
                rows[i].state);
 }

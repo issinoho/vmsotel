@@ -33,7 +33,7 @@
 typedef struct {
     int accepted;
     unsigned short retlen;
-    unsigned long long value;
+    probe_q value;
     unsigned int status;
     unsigned overrun;           /* bytes written, when more than offered */
     unsigned offered;
@@ -73,7 +73,8 @@ static unsigned char rmi_buf[RMI_BUF_SIZE];
 #define BLOCK_SIZE (OFF_ILE + ILE_BYTES + GUARD)
 
 static union {
-    unsigned long long align;   /* quadword-aligned, as an IOSB must be */
+    double align;               /* quadword-aligned, as an IOSB must be;
+                                   a double, as VAX has no 64-bit integer */
     unsigned char b[BLOCK_SIZE];
 } blk;
 
@@ -223,6 +224,156 @@ static void report_overrun(const probe_item *it, const rmi_result *r)
     probe_fail("$GETRMI wrote past the buffer length it was given");
 }
 
+/*
+ * RMI$_MODES: VAX's <rmidef.h> declares none of the RMI$_CPU* items
+ * (first VAX run), but has RMI$_MODES. Its layout, from the $GETRMI
+ * description in the OpenVMS System Services Reference: 4 bytes
+ * "reserved for internal use", then one packed 33-byte record per CPU
+ * -- a byte of physical CPU ID and eight longwords: interrupt (which
+ * "is actually the sum of interrupt and idle"), MP synch, kernel,
+ * exec, super, user, reserved (zero), idle -- in 10 ms ticks since
+ * boot. The VAX wrote 37 bytes for its one CPU, which fits.
+ *
+ * The check: with idle taken out of interrupt, the deltas of all
+ * modes on all CPUs must add up to 10 ms ticks of wall time per CPU.
+ */
+#define MODES_CAP 512
+#define MODES_HEAD 4
+#define MODES_REC 33
+
+static const char *const mode_names[8] = {
+    "interrupt+idle", "mpsynch", "kernel", "exec", "super", "user",
+    "reserved", "idle"
+};
+
+static unsigned modes_len;
+
+/* Returns the status; out gets MODES_CAP bytes, modes_len the extent. */
+static unsigned int modes_sample(unsigned char *out, int trace)
+{
+#ifdef RMI$_MODES
+    unsigned short *iosb = (unsigned short *) (blk.b + OFF_IOSB);
+    unsigned int *retlen = (unsigned int *) (blk.b + OFF_RETLEN);
+    probe_ile3 *ile = (probe_ile3 *) (blk.b + OFF_ILE);
+    unsigned int st;
+
+    memset(rmi_buf, RMI_FILL, sizeof rmi_buf);
+    memset(blk.b, RMI_FILL, sizeof blk.b);
+    memset(iosb, 0, 8);
+    *retlen = 0;
+    memset(ile, 0, ILE_BYTES);
+    ile[0].len = MODES_CAP;
+    ile[0].code = RMI$_MODES;
+    ile[0].buf = rmi_buf;
+    ile[0].retlen = (unsigned short *) retlen;
+    st = sys$getrmi(EFN$C_ENF, 0, 0, (void *) ile, (void *) iosb, 0, 0);
+    if (st & 1)
+        st = sys$synch(EFN$C_ENF, (void *) iosb);
+    if ((st & 1) && !(iosb[0] & 1))
+        st = iosb[0];
+    modes_len = written_extent();
+    if (trace)
+        printf("  status %08X retlen %u wrote at least %u of %u\n",
+               st, (unsigned) *retlen, modes_len, (unsigned) MODES_CAP);
+    if (guard_report())
+        guard_hits++;
+    if (modes_len > MODES_CAP) {
+        printf("  OVERRUN RMI$_MODES wrote past %u bytes\n", (unsigned) MODES_CAP);
+        probe_fail("$GETRMI wrote past the buffer length it was given");
+    }
+    memcpy(out, rmi_buf, MODES_CAP);
+    return st;
+#else
+    (void) out;
+    (void) trace;
+    return 0;
+#endif
+}
+
+static void hex_dump(const char *label, const unsigned char *b, unsigned n)
+{
+    unsigned i;
+
+    printf("  %s (%u bytes):", label, n);
+    for (i = 0; i < n; i++)
+        printf("%s%02x", i % 32 == 0 ? "\n    " : i % 4 == 0 ? "  " : " ", b[i]);
+    printf("\n");
+}
+
+/* Returns 1 if RMI$_MODES reads as 10 ms ticks of every CPU. */
+static int probe_modes(unsigned int ncpu)
+{
+    static unsigned char a[MODES_CAP], b[MODES_CAP];
+    unsigned int st, sum = 0, cpus = ncpu ? ncpu : 1;
+    unsigned recs, r, m, n;
+    probe_q t0, t1;
+    double seconds, rate;
+
+    printf("\nRMI$_MODES\n");
+#ifndef RMI$_MODES
+    printf("  --    RMI$_MODES not declared in <rmidef.h>\n");
+    return 0;
+#endif
+    t0 = probe_gettim();
+    st = modes_sample(a, 1);
+    if (!(st & 1)) {
+        printf("  no    RMI$_MODES %s\n", probe_msg(st));
+        return 0;
+    }
+    n = modes_len;
+    sleep(INTERVAL_SECONDS);
+    t1 = probe_gettim();
+    st = modes_sample(b, 0);
+    if (!(st & 1)) {
+        printf("  no    RMI$_MODES, second sample: %s\n", probe_msg(st));
+        return 0;
+    }
+    if (modes_len > n)
+        n = modes_len;
+    if (n > MODES_CAP)
+        n = MODES_CAP;
+    seconds = probe_q_double(probe_q_sub(t1, t0)) / 1e7;
+    hex_dump("first", a, n);
+    hex_dump("second", b, n);
+
+    /* A trailing byte equal to the fill pattern makes n short by up to
+       a few bytes, so round up to whole records. */
+    recs = n > MODES_HEAD ? (n - MODES_HEAD + MODES_REC - 1) / MODES_REC : 0;
+    printf("  %u bytes = 4 + %u x 33%s\n", n, recs,
+           n == MODES_HEAD + recs * MODES_REC ? "" : " (not exact)");
+    if (recs == 0) {
+        probe_fail("RMI$_MODES returned no CPU record");
+        return 0;
+    }
+    for (r = 0; r < recs; r++) {
+        const unsigned off = MODES_HEAD + r * MODES_REC;
+        unsigned int d[8];
+
+        printf("  CPU %u:\n", (unsigned) a[off]);
+        for (m = 0; m < 8; m++) {
+            unsigned int v0 = probe_le32(a + off + 1 + 4 * m, 4);
+            unsigned int v1 = probe_le32(b + off + 1 + 4 * m, 4);
+
+            d[m] = v1 - v0;
+            printf("    %-15s %10u -> %10u  +%u\n", mode_names[m], v0, v1, d[m]);
+        }
+        /* interrupt includes idle; take it out so idle counts once */
+        d[0] -= d[7];
+        for (m = 0; m < 8; m++)
+            sum += d[m];
+    }
+    rate = (double) sum / seconds / (double) cpus;
+    printf("  sum, idle counted once: %u over %.2f s = %.1f per s per "
+           "active CPU\n", sum, seconds, rate);
+    if (rate > 90.0 && rate < 110.0) {
+        probe_ok("RMI$_MODES is 10 ms ticks by mode, as documented");
+        return 1;
+    }
+    probe_fail("RMI$_MODES does not sum to 10 ms ticks per CPU; "
+               "the dump above is the evidence");
+    return 0;
+}
+
 static unsigned int active_cpus(void)
 {
     unsigned int n = 0;
@@ -243,19 +394,12 @@ static unsigned int active_cpus(void)
     return n;
 }
 
-static unsigned long long now_100ns(void)
-{
-    unsigned long long t = 0;
-
-    sys$gettim((void *) &t);
-    return t;
-}
-
 int main(void)
 {
     size_t i;
-    unsigned long long t0, t1, cpu_sum = 0;
+    probe_q t0, t1, cpu_sum;
     unsigned int ncpu, cpu_items = 0;
+    int modes_ok;
     double seconds;
 
     probe_banner("probe_rmi");
@@ -266,18 +410,20 @@ int main(void)
     printf("active CPUs (SYI$_ACTIVECPU_CNT): %u\n", ncpu);
     printf("sampling twice, %d s apart\n", INTERVAL_SECONDS);
 
-    t0 = now_100ns();
+    cpu_sum = probe_q_make(0u, 0u);
+    t0 = probe_gettim();
     sample(first, 1);
     sleep(INTERVAL_SECONDS);
-    t1 = now_100ns();
+    t1 = probe_gettim();
     sample(second, 0);
-    seconds = (double) (t1 - t0) / 1e7;
+    seconds = probe_q_double(probe_q_sub(t1, t0)) / 1e7;
 
     printf("\n  %-5s %-16s %20s %20s %12s  bytes\n",
            "", "item", "first", "second", "delta");
     for (i = 0; i < RMI_ITEMS_COUNT; i++) {
         const probe_item *it = &rmi_items[i];
         const rmi_result *a = &first[i], *b = &second[i];
+        char da[PROBE_Q_DIGITS], db[PROBE_Q_DIGITS], dd[PROBE_Q_DIGITS];
 
         if (it->code == PROBE_UNDECLARED) {
             printf("  --    %-16s not declared in <rmidef.h>\n", it->name);
@@ -289,20 +435,21 @@ int main(void)
                    probe_msg(a->accepted ? b->status : a->status));
             continue;
         }
-        printf("  ok    %-16s %20llu %20llu %12lld  %u\n", it->name,
-               a->value, b->value,
-               (long long) (b->value - a->value), (unsigned) a->retlen);
+        printf("  ok    %-16s %20s %20s %12s  %u\n", it->name,
+               probe_q_str(a->value, da), probe_q_str(b->value, db),
+               probe_q_delta_str(a->value, b->value, dd),
+               (unsigned) a->retlen);
 
         /* A mode counter that goes backwards is not a counter; on x86
            RMI$_CPUINTSTK was near 2^64 and fell. Left out of the sum so
            the unit check still says something, and failed loudly. */
         if (strncmp(it->name, "RMI$_CPU", 8) == 0) {
-            if (b->value < a->value) {
-                printf("  BACKWARDS %s: as signed, %lld -> %lld\n", it->name,
-                       (long long) a->value, (long long) b->value);
+            if (probe_q_cmp(b->value, a->value) < 0) {
+                printf("  BACKWARDS %s: %08X%08X -> %08X%08X\n", it->name,
+                       a->value.hi, a->value.lo, b->value.hi, b->value.lo);
                 probe_fail("a CPU mode counter went backwards; left out of the sum");
             } else {
-                cpu_sum += b->value - a->value;
+                cpu_sum = probe_q_add(cpu_sum, probe_q_sub(b->value, a->value));
                 cpu_items++;
             }
         }
@@ -313,13 +460,21 @@ int main(void)
         probe_fail("$GETRMI wrote outside its IOSB or return length");
     }
 
+    modes_ok = probe_modes(ncpu);
+
     printf("\nCPU mode counters\n");
-    printf("  %u mode items accepted, sum of deltas %llu over %.2f s\n",
-           cpu_items, cpu_sum, seconds);
-    if (cpu_items == 0) {
+    {
+        char d[PROBE_Q_DIGITS];
+
+        printf("  %u mode items accepted, sum of deltas %s over %.2f s\n",
+               cpu_items, probe_q_str(cpu_sum, d), seconds);
+    }
+    if (cpu_items == 0 && modes_ok) {
+        printf("  none of RMI$_CPU*; RMI$_MODES has them (above)\n");
+    } else if (cpu_items == 0) {
         probe_fail("no CPU mode counters available");
     } else {
-        double per_cpu_per_sec = (double) cpu_sum / seconds /
+        double per_cpu_per_sec = probe_q_double(cpu_sum) / seconds /
                                  (ncpu ? (double) ncpu : 1.0);
 
         printf("  = %.1f units per second per active CPU\n", per_cpu_per_sec);

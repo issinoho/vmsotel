@@ -239,3 +239,48 @@ what it changes in the design.
   2026-10-23T15:48:29Z` with the summer differential, within about 70 s
   of what SHOW SYSTEM's uptime implies — consistent with the
   summer-time explanation.
+
+## VAX
+
+A third machine, probed for a possible port (not built for): **VAX** =
+VAXVMS, a VAXserver 3900 under SIMH, OpenVMS V7.3, Compaq C V6.4-005
+(`__DECC_VER 60490005`), TCP/IP Services V5.1, 1 CPU, 64 MB. What its
+compiler and library lack was surveyed first by vms-hass (its
+`docs/NOTES.md` 15): no 64-bit integer type at all, no `snprintf` or
+`vsnprintf`, no `/STANDARD=C99`, no OpenSSL. So the probes were made C89
+without 64-bit integers (quadwords are `probe_q`, two longwords, on
+every machine; `make check` compiles them with `-std=c89 -Wlong-long
+-Werror`), `build_probes.com` got a VAX branch, `probe_rmi` learnt
+`RMI$_MODES` and `probe_otlp` a resolver fallback.
+
+Unlike the other two, the VAX was driven from the development machine
+over Telnet and FTP with vms-site-config's `tools/vax.py`, files in
+`SYS$SYSDEVICE:[WORK.VMSOTEL]`. Runs on **2026-11-10**, all as SYSTEM
+with every privilege; no unprivileged run yet. Another session
+(vms-hass) was building and running its agent on the same VAX at the
+time.
+
+| # | Question | VAX | Evidence / notes |
+| --- | --- | --- | --- |
+| V1 | The probes build; no LINK warnings | yes, five of six | `built:  probe_syi probe_rmi probe_jpi probe_dvi probe_logs probe_otlp`; `VAX: no OpenSSL; probe_otlp_tls not built`. Two things on the way: `%CC-I-IMPLICITFUNC … "sys$getrmi" is implicitly declared` (VAX's `<starlet.h>` has no prototype; the service links), and with `/DEFINE=_SOCKADDR_LEN` probe_otlp failed to link, `%LINK-W-NUDFSYMS … __BSD44_GETADDRINFO … __BSD44_GAI_STRERROR … __BSD44_FREEADDRINFO` — the check deleted the image. Without the define it links |
+| V2 | Quadword arithmetic without a 64-bit type | yes | `quadword check: 12345678901 18446744073709551615 -12345678900 1794268800`: decimal, the largest value, a signed delta and a VMS time to Unix seconds, each compared with its known answer (the check was confirmed to fail on Linux with the borrow broken) |
+| V3 | Item-list layout is 12 bytes | yes | `item list entry: 12 bytes, pointers 4 bytes` |
+| V4 | `SYI$_` items | all but one | every item accepted except `SYI$_FREE_PAGES  not declared`, as on x86 and I64. `ARCH_NAME "VAX"`, `HW_NAME "VAXserver 3900 Series"`, `VERSION "V7.3"`, `PAGE_SIZE 512`, `MEMSIZE 131072` (pages: 64 MB), `ACTIVECPU_CNT 1`. Sizes as elsewhere: `HW_MODEL` 2 bytes, `CLUSTER_MEMBER` 1, `CLUSTER_NODES` 2, `MAXPROCESSCNT` 2 |
+| V5 | `time()` is UTC | not settled | `SYS$TIMEZONE_DIFFERENTIAL 0`, `SYS$TIMEZONE_NAME`, `TZ` and `SYS$TIMEZONE_RULE` all `(undefined)`; `time()` = `$GETTIM` = `2026-11-10T20:06:25Z`, `differential is 0: … cannot tell UTC from local time`. Uptime from `SYI$_BOOTTIME`, `29431 s (0 d 08:10)`, matches SHOW SYSTEM `Uptime  0 08:10:48` |
+| V6 | `RMI$_` items: declared, accepted, size | 29 of 38 | Not declared in `<rmidef.h>`: all eight `RMI$_CPU*` and `RMI$_TRANSFLTS`. The other 29 accepted when offered 8 bytes, and wrote all 8 (`len 8: queue 00000001 synch 00000001 iosb 0001 … retlen 0 wrote 8`): the return length is **not written** at all (x86 and I64 write a longword), and no guard byte changed |
+| V7 | CPU time by mode | **`RMI$_MODES`** | Laid out as the System Services Reference's `$GETRMI` describes: 4 reserved bytes, then per CPU a packed 33-byte record — CPU ID byte; interrupt (which includes idle), MP synch, kernel, exec, super, user, reserved, idle, longwords of 10 ms ticks since boot. `37 bytes = 4 + 1 x 33`. Idle: `interrupt+idle +500`, `idle +500`, the rest +0, `sum, idle counted once: 500 over 5.00 s = 100.0 per s per active CPU`, and `MONITOR MODES` over the 20 s before gave `Idle Time 99.80` average. With a DCL loop running (supervisor mode): `super +477`, `exec +22`, `kernel +1`, idle +0. With a C `time()` loop (user mode): `user +225`, `exec +148`, `kernel +127`. So the mode order is as documented. Counting idle twice reads 200 per s — the probe's first version took that layout for 100 and was wrong; the check now subtracts idle and fails without it (confirmed on Linux) |
+| V8 | Counters and gauges among `RMI$_` items | as elsewhere | 5 s deltas: `FRLIST 94661 → 90775` and `MODLIST 2139 → 4721` move both ways (gauges, pages); `FAULTS +31681`, `PREADS +779`, `PREADIO +110`, `GVALFLTS +1022`, `DZROFLTS +12079`, `DIRIO +42`, `BUFIO +295` (counters); the state counts `COM 1`, `CUR 1`, `LEF 2`, `HIB 15` add to `PROCS 19` |
+| V9 | `JPI$_` items; `PPGCNT`+`GPGCNT` against SHOW SYSTEM | all accepted; equal | Every item accepted, `JPI$_VIRTPEAK` included. `SECURITY_SERVER 1282`, `QUEUE_MANAGER 1023`, `AUDIT_SERVER 816`, `TCPIP$FTP_1 812` = SHOW SYSTEM Pages exactly. VAX pages are 512 bytes, so pages and pagelets are the same thing here |
+| V10 | Processes visible to a privileged scan | all | `processes returned 19`, `NOPRIV 0` = the 19 in SHOW SYSTEM. Unprivileged not run |
+| V11 | Full `$GETJPI` scan cost | under one clock tick | `scan took 0.0 ms`: the two `$GETTIM` readings were equal, so the 19-process scan finished inside one tick of the system clock |
+| V12 | `$DEVICE_SCAN` finds the disks of SHOW DEVICE D; `FREEBLOCKS` | yes; close | `4 disks found`, DUA0–DUA3, as SHOW DEVICE D. DUA1 `FREEBLOCKS 2234367` against SHOW DEVICE `2234322` some seconds later, with builds writing; not exact as on x86. `DVI$_VOLSIZE` not declared; the unmounted disks accept every item with zeros |
+| V13 | `DVI$_OPCNT` is cumulative | yes | `_VAXVMS$DUA1: 15026 -> 15113 (+87)` over 5 s |
+| V14 | TCP and HTTP to the collector | yes, without `getaddrinfo` | `getaddrinfo` fails for a dotted address, either way: `no getaddrinfo, AF_UNSPEC: 11, (no message)`, `AF_INET: 11` — `gai_strerror` returned NULL. `inet_addr` worked: `ok connected through inet_addr/gethostbyname`, `HTTP/1.1 200 OK`, body `{"partialSuccess":{}}`. The collector's own output on docker-nuc was not looked at |
+| V15 | Clock against the collector | 16 s fast | `clock skew: ours minus collector's = 16 s` (FAIL beyond 2 s). SHOW SYSTEM lists no NTP process. The agent's skew warning (`CLOCK:`) would fire |
+| V16 | The operator log: shared read, format, RFA | yes, yes, yes | `ok open the operator log for shared reading`, `record format VAR (2)`, `267 records`; `ok reopened at the last record read, by its RFA`. As SYSTEM; unprivileged not run |
+| V17 | A REQUEST appears in the operator log | **only after 10–12 minutes** | Run 1 sent `REQUEST "vmsotel probe_logs marker 1794341577"` (20:12:57) and saw nothing, open stream or reopened, for 570 s (vax.py's 600 s limit then ended the session). Run 2, whose marker went out at 20:24:56, found the first in the file: `%%%%%%%%%%%  OPCOM  10-NOV-2026 20:12:57.39`, `_TNA34:, vmsotel probe_logs marker 1794341577`; its own marker then did not appear within the 600 s it waited. So OPCOM stamps the message at once but it reaches the file between 9.5 and 12 minutes later. x86 and I64 took minutes (35); the agent's logs would lag by that much here |
+| V18 | The audit journal: shared read; records against NSAMSGDEF | yes; fits | `ok open the audit journal for shared reading`, `VAR (2)`, `66 records, 98 to 1956 bytes`, `decoded by NSAMSGDEF: 66 records consistent, 0 not`, the same packet layout as x86 and I64 (types 3, 6, 19, 29, 41, 42, 47, 49, 56, 57, 84, …). The records hold password-hash packets (257–259) from AUTHORIZE changes, so none is quoted here |
+
+Not yet run on VAX: any probe without privilege; the collector's side
+of V14; the agent itself, which needs the porting work in
+`docs/design.md`, "VAX".

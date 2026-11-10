@@ -20,6 +20,12 @@ STRICT  = -std=c99 -pedantic -Wall -Wextra -Werror
 # -pedantic has no switch for it alone, so the VMS-only probes drop
 # -pedantic and keep the rest. probe_otlp is portable and keeps it.
 VMSISH  = -std=c99 -Wall -Wextra -Werror -fdollars-in-identifiers -Istub
+# The probes also build on VAX, whose Compaq C V6.4 is C89 with no
+# 64-bit integer at all. Checked here: C89, long long an error. The
+# stub is Linux-only and may use long long, so its headers are system
+# headers for this check.
+VAXISH  = -std=c89 -Wall -Wextra -Werror -Wlong-long \
+          -Wdeclaration-after-statement -fdollars-in-identifiers -isystem stub
 
 PYTHON ?= python3
 
@@ -179,6 +185,8 @@ check: all
 	test "$$(sort -u $(B)/launch.out | wc -l)" = 2
 	$(B)/vmsotel_vmsstub --selftest
 	$(PYTHON) -I tools/fake_collector.py --agent-selftest $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
+	for f in probes/vmsprobe.c probes/probe_*.c; do \
+	    $(CC) $(VAXISH) -c -o /dev/null $$f || exit 1; done
 	rm -f $(B)/stub_operator.log $(B)/stub_audit.journal
 	for p in $(VMS_PROBES); do echo "== $$p"; $$p || exit 1; done
 	rm -f $(B)/stub_operator.log
