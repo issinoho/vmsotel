@@ -108,7 +108,8 @@ the user runs on OpenVMS and pastes the output back.
 
 The VAX (probes, and `VMSOTEL.EXE` built by `build_vms` and by
 `MMS/MACRO=VAX=1`, self-tested, and run detached for an hour with
-processes and logs, and run unprivileged; `docs/findings.md`, "VAX") can be driven
+processes and logs, and run unprivileged; the kit installed and the
+agent started as its own account; `docs/findings.md`, "VAX") can be driven
 from here, with the user's say-so, by
 `~/projects/vms-site-config/tools/vax.py` (Telnet and FTP; it has no
 SSH): `vax.py put LOCAL 'SYS$SYSDEVICE:[WORK.VMSOTEL]name'`, then

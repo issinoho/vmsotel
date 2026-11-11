@@ -7,8 +7,10 @@
 product @PRODUCER@ @BASE@ VMSOTEL @PCSIVERSION@ full ;
 
     -- VMSOTEL_TLS.EXE and VMSOTEL_LAUNCH.EXE link VSI's OpenSSL 3 shared
-    -- images (SSL3$LIBSSL_SHR32, SSL3$LIBCRYPTO_SHR32).
-    software VSI @BASE@ SSL3 ;
+    -- images (SSL3$LIBSSL_SHR32, SSL3$LIBCRYPTO_SHR32). VAX has no
+    -- OpenSSL: on VAX, MAKE_KIT.COM turns each line that starts with
+    -- the NOTVAX token into a comment, and elsewhere drops the token.
+    @NOTVAX@software VSI @BASE@ SSL3 ;
 
     information RELEASE_NOTES phase after with helptext ;
 
@@ -20,7 +22,7 @@ product @PRODUCER@ @BASE@ VMSOTEL @PCSIVERSION@ full ;
     directory [VMSOTEL.LOG] ;
 
     file [VMSOTEL.BIN]VMSOTEL.EXE ;
-    file [VMSOTEL.BIN]VMSOTEL_TLS.EXE ;
+    @NOTVAX@file [VMSOTEL.BIN]VMSOTEL_TLS.EXE ;
     file [VMSOTEL.BIN]VMSOTEL_LAUNCH.EXE ;
     file [VMSOTEL.COM]VMSOTEL_START.COM ;
     file [VMSOTEL.COM]VMSOTEL_RUN.COM ;

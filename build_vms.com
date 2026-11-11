@@ -139,11 +139,31 @@ $     if f$search("[.build]vmsotel.exe") .nes. "" then -
 $ else
 $     built = built + " vmsotel.exe"
 $ endif
-$ if arch .eqs. "VAX"
+$ if arch .ne. "VAX" then goto openssl
+$!
+$! VAX: no OpenSSL, so no VMSOTEL_TLS.EXE. The launcher builds without
+$! it (launch.c, VO_LAUNCH_NO_OPENSSL), and with no /POINTER_SIZE:
+$! VAX's pointers are 32 bits, and its compiler has no such qualifier.
+$ say "VAX: no OpenSSL; vmsotel_tls.exe not built"
+$ say "compiling and linking vmsotel_launch.exe"
+$ failed_before = failed
+$ cobj = "launch"
+$ csrc = "[.src.launch]launch.c"
+$ cflags = ""
+$ gosub compile
+$ if failed .nes. failed_before then goto summary
+$ link /EXECUTABLE=[.build]vmsotel_launch.exe [.build]launch.obj
+$ if $severity .ne. 1
 $ then
-$     say "VAX: no OpenSSL; vmsotel_tls.exe and vmsotel_launch.exe not built"
-$     goto summary
+$     failed = failed + " vmsotel_launch.exe"
+$     if f$search("[.build]vmsotel_launch.exe") .nes. "" then -
+          delete/nolog [.build]vmsotel_launch.exe;*
+$ else
+$     built = built + " vmsotel_launch.exe"
 $ endif
+$ goto summary
+$!
+$ openssl:
 $!
 $!---------------------------------------------------------------------
 $! OpenSSL for VMSOTEL_TLS.EXE

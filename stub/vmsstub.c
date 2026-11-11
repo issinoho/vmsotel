@@ -249,6 +249,9 @@ static const struct {
 };
 #define NPROCS (sizeof procs / sizeof procs[0])
 
+/* 0: our own persona; else the one assumed (personas, below). */
+static unsigned int stub_persona;
+
 int sys$getjpiw(unsigned int efn, unsigned int *pidadr, void *prcnam,
                 void *itmlst, void *iosb, void (*astadr)(void), int astprm)
 {
@@ -277,7 +280,11 @@ int sys$getjpiw(unsigned int efn, unsigned int *pidadr, void *prcnam,
         switch (e->code) {
         case JPI$_PID:      put_num(e, procs[k].pid); break;
         case JPI$_PRCNAM:   put_text(e, procs[k].name); break;
-        case JPI$_USERNAME: put_text(e, procs[k].user); break;
+        case JPI$_USERNAME:
+            /* This process, under an assumed persona, is its account. */
+            put_text(e, pidadr == NULL && stub_persona != 0
+                        ? "VMSOTEL" : procs[k].user);
+            break;
         case JPI$_CPUTIM:   put_num(e, procs[k].cpu); break;
         case JPI$_PPGCNT:   put_num(e, procs[k].pages); break;
         case JPI$_GPGCNT:   put_num(e, procs[k].pages / 4); break;
@@ -621,9 +628,11 @@ void probe_stub_request(const char *text)
     fclose(f);
 }
 
-/* ---- personas and $CREPRC, for the launcher ---- */
-
-static unsigned int stub_persona;       /* 0: our own; else assumed */
+/* ---- personas and $CREPRC, for the launcher ----
+   stub_persona is declared above $GETJPI, which reports the persona's
+   username while one is assumed. STUB_PERSONA_IGNORED makes assuming
+   take on nothing, as VAX's $PERSONA_ASSUME does with flags 0
+   (findings V28). */
 
 static void stub_dsc(char *out, size_t cap, void *d)
 {
@@ -651,6 +660,8 @@ int sys$persona_assume(unsigned int *persona, unsigned int flags,
                        void *retpersona, void *itmlst)
 {
     (void) flags, (void) retpersona, (void) itmlst;
+    if (getenv("STUB_PERSONA_IGNORED") != NULL)
+        return SS$_NORMAL;
     stub_persona = *persona == 1 ? 0 : *persona;
     return SS$_NORMAL;
 }

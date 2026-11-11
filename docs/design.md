@@ -546,9 +546,17 @@ collector with the right values. How the port is done:
   `.IF` and does not predefine `__VAX__`, so the VAX is named by hand,
   and `.FIRST` stops a build whose macro does not match the machine.
   `host.arch` is `vax` (and `alpha` on Alpha, which no semantic
-  convention names either). Not done: the kit, whose launcher needs
-  OpenSSL for its password and persona services that are not probed
-  on V7.3.
+  convention names either).
+- **The kit** builds and installs on VAX (findings V28, V29), without
+  `VMSOTEL_TLS.EXE` or the SSL3 dependency. The launcher passes
+  `IMP$M_ASSUME_SECURITY | IMP$M_ASSUME_ACCOUNT` to VAX's older
+  `$PERSONA_ASSUME`, which with flags 0 succeeds and takes on nothing
+  -- the agent would have run as SYSTEM -- and checks the username
+  before `$CREPRC`. Its `--password` mixes the clock's jitter and the
+  process's counters, as there is no OpenSSL; the account cannot log
+  in by any class, so the password only has to be unknown. PCSI on
+  V7.3 has no `/OPTIONS`, and ODS-2 allows one dot, so the example
+  configuration is `VMSOTEL.CONF_EXAMPLE` in a VAX tree.
 
 ## Open questions
 

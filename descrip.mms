@@ -3,7 +3,7 @@
 ! Usage, from the vmsotel directory:
 !     $ MMS                build VMSOTEL.EXE, VMSOTEL_TLS.EXE and
 !                          VMSOTEL_LAUNCH.EXE
-!     $ MMS/MACRO=VAX=1    on VAX: VMSOTEL.EXE only
+!     $ MMS/MACRO=VAX=1    on VAX: VMSOTEL.EXE and VMSOTEL_LAUNCH.EXE
 !     $ MMS CLEAN          remove the agent's objects and images
 !
 ! Type the target in capitals. With SET PROCESS/PARSE_STYLE=EXTENDED,
@@ -41,7 +41,8 @@ SSL_EXPECT = VO_EXPECT_OPENSSL_3
 
 ! VAX (findings, "VAX"): Compaq C V6.4 refuses /STANDARD=C99, so the
 ! agent is C89 there (RELAXED_ANSI89 keeps '$' in names), and there is
-! no OpenSSL, so VMSOTEL.EXE is the only image. MMS V3.2 on VAX has no
+! no OpenSSL, so no VMSOTEL_TLS.EXE, and the launcher is built without
+! it and without /POINTER_SIZE (findings V28). MMS V3.2 on VAX has no
 ! .IF and does not predefine __VAX__ (MMS$ARCH_NAME is there, but
 ! .IFDEF cannot test a value), so the VAX is named by hand, and .FIRST
 ! stops a build whose VAX macro does not match the machine.
@@ -49,7 +50,7 @@ SSL_EXPECT = VO_EXPECT_OPENSSL_3
 .IFDEF VAX
 VAX_BUILD = 1
 CSTD = /STANDARD=RELAXED_ANSI89
-IMAGES = [.build]vmsotel.exe
+IMAGES = [.build]vmsotel.exe, [.build]vmsotel_launch.exe
 .ELSE
 VAX_BUILD = 0
 CSTD = /STANDARD=C99
@@ -153,10 +154,18 @@ ALL : $(IMAGES)
 /OBJECT=$(MMS$TARGET) [.src.transport]tls.c
 
 ! The kit's launcher: persona services, $CREPRC, and OpenSSL's
-! generator, so the pointer size of the ..._SHR32 images too.
+! generator, so the pointer size of the ..._SHR32 images too. On VAX,
+! neither OpenSSL nor /POINTER_SIZE; that rule comes first, so that
+! tools/check_build_files.py compares the other.
+
+.IFDEF VAX
+[.build]launch.obj : [.src.launch]launch.c
+    $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.launch]launch.c
+.ELSE
 
 [.build]launch.obj : [.src.launch]launch.c
     $(CC)$(CFLAGS)/POINTER_SIZE=32/OBJECT=$(MMS$TARGET) [.src.launch]launch.c
+.ENDIF
 
 ! ==== linker options ====
 
@@ -184,9 +193,15 @@ $(CORE_OBJS)
 [.build]http_tls.obj,[.build]tls.obj,$(CORE_OBJS),$(OPT)/OPTIONS
     @ IF $SEVERITY .NE. 1 THEN EXIT %X10000002
 
+.IFDEF VAX
+[.build]vmsotel_launch.exe : [.build]launch.obj
+    $(LINK)/EXECUTABLE=$(MMS$TARGET) [.build]launch.obj
+    @ IF $SEVERITY .NE. 1 THEN EXIT %X10000002
+.ELSE
 [.build]vmsotel_launch.exe : [.build]launch.obj, $(OPT)
     $(LINK)/EXECUTABLE=$(MMS$TARGET) [.build]launch.obj,$(OPT)/OPTIONS
     @ IF $SEVERITY .NE. 1 THEN EXIT %X10000002
+.ENDIF
 
 ! ==== housekeeping ====
 !

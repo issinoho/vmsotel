@@ -26,7 +26,8 @@ $!  - SYS$MANAGER:VMSOTEL$CONFIG.COM (the account; start at boot or
 $!    not), and the system logical VMSOTEL$USER.
 $!
 $ set noon
-$ set process/parse_style=extended
+$! Not on VAX: V7.3 there has no PARSE_STYLE (findings V29).
+$ if f$getsyi("ARCH_NAME") .nes. "VAX" then set process/parse_style=extended
 $ say = "write sys$output"
 $ interactive = f$mode() .eqs. "INTERACTIVE"
 $ if f$trnlnm("VMSOTEL$ROOT", "LNM$SYSTEM_TABLE") .eqs. ""

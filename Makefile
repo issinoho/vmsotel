@@ -53,7 +53,7 @@ CORE_OBJ = $(B)/vo_types.o $(B)/model.o $(B)/procfilter.o $(B)/logparse.o \
            $(B)/platform_posix.o $(B)/queue.o $(B)/config.o \
            $(B)/fake_source.o $(B)/fake_logs.o
 AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub \
-         $(B)/vmsotel_launch_vmsstub
+         $(B)/vmsotel_launch_vmsstub $(B)/vmsotel_launch_vax_vmsstub
 
 # The VMS source, built here against stub/ so its logic runs before it
 # costs a round trip. Like the probes it takes '$' in identifiers, so
@@ -140,6 +140,14 @@ $(B)/launch.o: src/launch/launch.c stub/*.h | $(B)
 	$(CC) $(VMSISH) -c -o $@ $<
 $(B)/vmsotel_launch_vmsstub: $(B)/launch.o $(B)/vmsstub.o
 	$(CC) -o $@ $^ -lcrypto
+# As VAX builds it (findings V28): C89, no OpenSSL, and the identity
+# check. Not VAX's two- and three-argument persona calls, which the
+# stub's prototypes do not match; those ran on the VAX.
+LAUNCH_VAX = -DVO_LAUNCH_NO_OPENSSL -DVO_LAUNCH_CHECK_ID
+$(B)/launch_vax.o: src/launch/launch.c stub/*.h | $(B)
+	$(CC) $(subst -std=c99,-std=c89 -Wlong-long,$(VMSISH)) $(LAUNCH_VAX) -c -o $@ $<
+$(B)/vmsotel_launch_vax_vmsstub: $(B)/launch_vax.o $(B)/vmsstub.o
+	$(CC) -o $@ $^
 
 # Test-only: makes CLOCK_MONOTONIC step back an hour, for the agent
 # self-test. Linux and glibc; not part of the agent, not strict C99.
@@ -195,6 +203,15 @@ check: all
 	! $(B)/vmsotel_launch_vmsstub vmsotel a.com a.log process_name_too_long > /dev/null
 	$(B)/vmsotel_launch_vmsstub --password > $(B)/launch.out
 	$(B)/vmsotel_launch_vmsstub --password >> $(B)/launch.out
+	test "$$(grep -cxE '[A-Z0-9]{32}' $(B)/launch.out)" = 2
+	test "$$(sort -u $(B)/launch.out | wc -l)" = 2
+	$(B)/vmsotel_launch_vax_vmsstub VMSOTEL DKA0:[X.COM]R.COM DKA0:[X.LOG]R.LOG vmsotel > $(B)/launch.out
+	grep -q '^vmsotel_launch: process 02001234 started as VMSOTEL$$' $(B)/launch.out
+	! STUB_PERSONA_IGNORED=1 $(B)/vmsotel_launch_vax_vmsstub VMSOTEL a.com a.log vmsotel > $(B)/launch.out
+	grep -q 'refusing to start the agent as anyone else' $(B)/launch.out
+	! grep -q CREPRC $(B)/launch.out
+	$(B)/vmsotel_launch_vax_vmsstub --password > $(B)/launch.out
+	$(B)/vmsotel_launch_vax_vmsstub --password >> $(B)/launch.out
 	test "$$(grep -cxE '[A-Z0-9]{32}' $(B)/launch.out)" = 2
 	test "$$(sort -u $(B)/launch.out | wc -l)" = 2
 	$(B)/vmsotel_vmsstub --selftest

@@ -20,7 +20,7 @@ import re
 import sys
 
 IMAGES = {"VMSOTEL.EXE", "VMSOTEL_TLS.EXE", "VMSOTEL_LAUNCH.EXE"}
-TOKENS = {"PRODUCER", "BASE", "PCSIVERSION", "VERSION", "ARCH"}
+TOKENS = {"PRODUCER", "BASE", "PCSIVERSION", "VERSION", "ARCH", "NOTVAX"}
 
 
 def repo_path(vms_dir, name):
@@ -37,7 +37,13 @@ def gathered(com):
     and fills."""
     out = {}
     for line in com.split("\n"):
-        m = re.match(r"\$ copy/nolog (\S+) 'mat'(\S*)$", line)
+        # Some only off VAX: "$ if arch .nes. "VAX" then copy/nolog ...".
+        # The VAX-only copies are of the same files under ODS-2 names
+        # (VMSOTEL.CONF_EXAMPLE), which the repository does not have.
+        if line.startswith('$ if arch .eqs. "VAX" then copy/nolog'):
+            continue
+        m = re.match(r"\$ (?:if .* then )?copy/nolog (\S+) 'mat'(\S*)$",
+                     line)
         if m:
             src, rename = m.group(1), m.group(2)
             d = re.match(r"(\[[^\]]*\])", src).group(1)
@@ -58,7 +64,9 @@ def main():
     ptf = open("kit/vmsotel.pcsi$text").read()
     com = open("kit/make_kit.com").read()
 
-    files = re.findall(r"^\s*file \[([^\]]+)\](\S+) ;", pdf, re.M)
+    # "@NOTVAX@file ...": a file of every kit but VAX's.
+    files = re.findall(r"^\s*(?:@NOTVAX@)?file \[([^\]]+)\](\S+) ;", pdf,
+                       re.M)
     dirs = set(re.findall(r"^\s*directory \[([^\]]+)\] ;", pdf, re.M))
     named = {n.upper() for _, n in files}
     have = gathered(com)

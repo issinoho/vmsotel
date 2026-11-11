@@ -4,17 +4,20 @@ $!   @dev:[dir.VMSOTEL.KIT]MAKE_KIT          after @[.VMSOTEL]BUILD_VMS
 $!
 $! Writes ISSINOHO-<base>-VMSOTEL-<version>-1.PCSI to [.KIT_<arch>] in
 $! the vmsotel tree. Needs [.BUILD]VMSOTEL.EXE, VMSOTEL_TLS.EXE and
-$! VMSOTEL_LAUNCH.EXE, and refuses agent images whose --version is not
+$! VMSOTEL_LAUNCH.EXE -- on VAX, which has no OpenSSL, not
+$! VMSOTEL_TLS.EXE -- and refuses agent images whose --version is not
 $! VO_VERSION in src/model/version.h. PRODUCT PACKAGE needs no
 $! privilege.
 $!
 $! The product description and text module are the templates in
 $! [.KIT] with @PRODUCER@, @BASE@, @PCSIVERSION@, @VERSION@ and @ARCH@
-$! filled in; README.VMS too. tools/check_kit.py, in make check, checks
+$! filled in, and @NOTVAX@: nothing, or on VAX "-- not on VAX: ", which
+$! makes the rest of that line a comment; README.VMS too. tools/check_kit.py, in make check, checks
 $! that every file the description names is gathered here.
 $!
 $ set noon
-$ set process/parse_style=extended
+$! Not on VAX: V7.3 there has no PARSE_STYLE (findings V29).
+$ if f$getsyi("ARCH_NAME") .nes. "VAX" then set process/parse_style=extended
 $ say := write sys$output
 $ status = 44
 $ saved_default = f$environment("DEFAULT")
@@ -26,8 +29,12 @@ $ base = "I64VMS"
 $ archname = "Integrity"
 $ if arch .eqs. "X86_64" then base = "X86VMS"
 $ if arch .eqs. "ALPHA" then base = "AXPVMS"
+$ if arch .eqs. "VAX" then base = "VAXVMS"
 $ if arch .eqs. "X86_64" then archname = "x86-64"
 $ if arch .eqs. "ALPHA" then archname = "Alpha"
+$ if arch .eqs. "VAX" then archname = "VAX"
+$ notvax = ""
+$ if arch .eqs. "VAX" then notvax = "-- not on VAX: "
 $ producer = "ISSINOHO"
 $!
 $! ---- the version, from src/model/version.h alone ----
@@ -65,6 +72,7 @@ $ endif
 $!
 $! ---- the images, and the version they report ----
 $ images = "VMSOTEL,VMSOTEL_TLS,VMSOTEL_LAUNCH"
+$ if arch .eqs. "VAX" then images = "VMSOTEL,VMSOTEL_LAUNCH"
 $ i = 0
 $ img_loop:
 $   img = f$element(i, ",", images)
@@ -79,6 +87,7 @@ $   goto img_loop
 $ img_done:
 $ say "MAKE_KIT: version.h says ''version', PCSI ''pcsiversion'"
 $ agents = "VMSOTEL,VMSOTEL_TLS"
+$ if arch .eqs. "VAX" then agents = "VMSOTEL"
 $ i = 0
 $ ver_loop:
 $   img = f$element(i, ",", agents)
@@ -109,10 +118,14 @@ $ if f$search("[.KIT_''arch']MAT.DIR") .eqs. "" then create/directory 'mat'
 $ if f$search("''out'*.PCSI;*") .nes. "" then delete/nolog 'out'*.PCSI;*
 $ if f$search("''out'*.PCSI$*;*") .nes. "" then delete/nolog 'out'*.PCSI$*;*
 $ if f$search("''mat'*.*;*") .nes. "" then delete/nolog 'mat'*.*;*
-$ copy/nolog [.BUILD]VMSOTEL.EXE,VMSOTEL_TLS.EXE,VMSOTEL_LAUNCH.EXE 'mat'
+$ copy/nolog [.BUILD]VMSOTEL.EXE,VMSOTEL_LAUNCH.EXE 'mat'
+$ if arch .nes. "VAX" then copy/nolog [.BUILD]VMSOTEL_TLS.EXE 'mat'
 $ copy/nolog []VMSOTEL_START.COM,VMSOTEL_RUN.COM,VMSOTEL_STOP.COM,VMSOTEL_PRIVS.COM 'mat'
 $ copy/nolog [.KIT]VMSOTEL$CONFIGURE.COM,VMSOTEL$STARTUP.COM,VMSOTEL$SHUTDOWN.COM 'mat'
-$ copy/nolog []VMSOTEL.CONF.EXAMPLE 'mat'VMSOTEL.CONF_EXAMPLE
+$! VAX's ODS-2 disks allow one dot in a name, so there the source tree
+$! has the example as VMSOTEL.CONF_EXAMPLE, the kit's own name for it.
+$ if arch .nes. "VAX" then copy/nolog []VMSOTEL.CONF.EXAMPLE 'mat'VMSOTEL.CONF_EXAMPLE
+$ if arch .eqs. "VAX" then copy/nolog []VMSOTEL.CONF_EXAMPLE 'mat'VMSOTEL.CONF_EXAMPLE
 $ copy/nolog [.DOCS]OPERATIONS.MD 'mat'OPERATIONS.MD
 $ copy/nolog []LICENSE. 'mat'LICENSE.
 $ in = "[.KIT]README.VMS"
@@ -127,6 +140,9 @@ $ gosub fill
 $ matspec = f$parse(mat,,,"DEVICE","NO_CONCEAL") + -
             f$parse(mat,,,"DIRECTORY","NO_CONCEAL")
 $!
+$! PCSI V7.3-100 on VAX has no /OPTIONS, and does not ask.
+$ pkgopt = "/options=noconfirm"
+$ if arch .eqs. "VAX" then pkgopt = ""
 $ say "MAKE_KIT: ''producer' ''base' VMSOTEL ''pcsiversion' (vmsotel ''version')"
 $ product package VMSOTEL -
       /producer='producer' /base_system='base' /version='pcsiversion' -
@@ -134,7 +150,7 @@ $ product package VMSOTEL -
       /material='matspec' -
       /destination='out' -
       /format=sequential -
-      /options=noconfirm /log
+      'pkgopt' /log
 $ status = $status
 $ kit = f$search("''out'*.PCSI")
 $ if kit .nes. "" then say "MAKE_KIT: kit ", kit
@@ -151,7 +167,7 @@ $ fill_line:
 $   read/end_of_file=fill_end fin line
 $   t = 0
 $ fill_token:
-$   name = f$element(t, ",", "PRODUCER,BASE,PCSIVERSION,VERSION,ARCH")
+$   name = f$element(t, ",", "PRODUCER,BASE,PCSIVERSION,VERSION,ARCH,NOTVAX")
 $   if name .eqs. "," then goto fill_write
 $   tok = "@" + name + "@"
 $   if name .eqs. "PRODUCER" then val = producer
@@ -159,6 +175,7 @@ $   if name .eqs. "BASE" then val = base
 $   if name .eqs. "PCSIVERSION" then val = pcsiversion
 $   if name .eqs. "VERSION" then val = version
 $   if name .eqs. "ARCH" then val = archname
+$   if name .eqs. "NOTVAX" then val = notvax
 $ fill_again:
 $   at = f$locate(tok, line)
 $   if at .eq. f$length(line) then goto fill_next
