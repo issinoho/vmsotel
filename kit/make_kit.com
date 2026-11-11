@@ -29,7 +29,10 @@ $ base = "I64VMS"
 $ archname = "Integrity"
 $ if arch .eqs. "X86_64" then base = "X86VMS"
 $ if arch .eqs. "ALPHA" then base = "AXPVMS"
-$ if arch .eqs. "VAX" then base = "VAXVMS"
+$! VAX: base VMS, as the family's other VAX kits (vms-zlib, vms-hass)
+$! and the family site expect: ISSINOHO-VMS-VMSOTEL-... PCSI takes
+$! VAXVMS as well; the first VAX kit used it (findings V29).
+$ if arch .eqs. "VAX" then base = "VMS"
 $ if arch .eqs. "X86_64" then archname = "x86-64"
 $ if arch .eqs. "ALPHA" then archname = "Alpha"
 $ if arch .eqs. "VAX" then archname = "VAX"

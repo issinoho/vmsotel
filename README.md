@@ -6,18 +6,19 @@
 
 [![Release](https://img.shields.io/github/v/release/issinoho/vmsotel?label=release)](https://github.com/issinoho/vmsotel/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/issinoho/vmsotel/total?label=downloads)](https://github.com/issinoho/vmsotel/releases)
-![OpenVMS](https://img.shields.io/badge/OpenVMS-IA64%20%7C%20x86--64-blue)
+![OpenVMS](https://img.shields.io/badge/OpenVMS-IA64%20%7C%20x86--64%20%7C%20VAX-blue)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-An [OpenTelemetry](https://opentelemetry.io) agent for **OpenVMS** (x86-64 and
-Integrity/IA64). It reads the system services and sends this system's metrics
+An [OpenTelemetry](https://opentelemetry.io) agent for **OpenVMS** (x86-64,
+Integrity/IA64, and VAX). It reads the system services and sends this system's metrics
 and, if you ask, its operator log and audit journal to an OpenTelemetry
 collector over **OTLP/HTTP**, with or without TLS. From the collector they go
 wherever your other systems' telemetry goes: Prometheus, Grafana, Elastic,
 Datadog, Splunk or anything else that takes OTLP.
 
 It is written for OpenVMS from scratch in C99, with no C++ and nothing to
-port: VSI C on both architectures, VSI's OpenSSL 3 kit for TLS. It connects
+port: VSI C on x86-64 and IA64, VSI's OpenSSL 3 kit for TLS, and Compaq C
+on VAX, where it is C89 and sends plain HTTP (there is no OpenSSL for VAX). It connects
 out to the collector, so nothing listens on the VMS system. Installed from the
 kit, it runs as an account of its own, never as SYSTEM, with only the
 privileges its configuration needs.
@@ -72,6 +73,13 @@ From the [latest release](https://github.com/issinoho/vmsotel/releases/latest):
 
 `SHA256SUMS` lists the SHA-256 of each kit. Requires VSI TCP/IP Services and
 VSI's SSL3 kit.
+
+On **VAX** (tested on OpenVMS V7.3 with TCP/IP Services V5.1), build it from
+source and make the kit there: `@BUILD_VMS`, then `@[.KIT]MAKE_KIT` writes
+`ISSINOHO-VMS-VMSOTEL-V0001-0-1.PCSI`. It needs no SSL3 kit, and has no TLS.
+VAX's PCSI has no `/OPTIONS`, so `PRODUCT INSTALL` asks its questions; ODS-2
+allows one dot in a name, so copy `vmsotel.conf.example` to the VAX as
+`VMSOTEL.CONF_EXAMPLE`.
 
 ## Installing
 
@@ -173,7 +181,7 @@ differ by more than 2 s.
 
 ## Tested
 
-Both kits are built natively and have run on an x86-64 E9.2-4 system and an
+The kits are built natively and have run on an x86-64 E9.2-4 system and an
 Integrity rx2660 on V8.4-2L3 against OpenTelemetry Collector 0.111.0:
 - The self-test matched SHOW and MONITOR.
 - Per-process CPU and memory equalled SHOW SYSTEM.
@@ -182,8 +190,13 @@ Integrity rx2660 on V8.4-2L3 against OpenTelemetry Collector 0.111.0:
 - A clock set back did not stall the agent.
 - Rotated logs were followed without loss.
 
+On a VAXserver 3900 (SIMH) on V7.3, the agent was built by `build_vms` and
+MMS, its self-test matched SHOW and MONITOR, it ran detached for an hour with
+processes and both logs, ran unprivileged, and its kit installed, started the
+agent as its own account at a (simulated) boot, and was removed.
+
 [`docs/findings.md`](docs/findings.md) has every result, with the evidence
-from both machines.
+from each machine.
 
 ## Building from source
 
@@ -202,6 +215,10 @@ MONITOR command that shows the same number. `descrip.mms` builds the same with
 `MMS` (type `MMS CLEAN` in capitals). `make_kit` writes the PCSI kit to
 `[.vmsotel.KIT_<arch>]`. A source tree can also be run directly, as whoever
 starts it: see [`docs/operations.md`](docs/operations.md).
+
+VAX has no git: copy the tree over (FTP), with `vmsotel.conf.example` as
+`VMSOTEL.CONF_EXAMPLE`. There `build_vms` builds `VMSOTEL.EXE` and
+`VMSOTEL_LAUNCH.EXE` only, and MMS needs `MMS/MACRO=VAX=1`.
 
 ## For developers
 
@@ -226,7 +243,7 @@ check`), every payload is parsed against the official schema.
 - [`docs/findings.md`](docs/findings.md): what the probes and the agent showed on each machine
 - [`CLAUDE.md`](CLAUDE.md): the working notes and constraints (C99, 32-bit item lists, three build files)
 - `src/`: `model/` (one reading of the system), `otlp/` (the OTLP JSON encoder), `platform/`, `transport/` (HTTP, TLS over memory BIOs, the queue), `sources/` (VMS and fake), `agent/`, `launch/` (the kit's launcher)
-- `probes/`: the programs that answered the design's questions on both machines, before the code relied on the answers
+- `probes/`: the programs that answered the design's questions on each machine, before the code relied on the answers
 - `kit/`: the PCSI kit; `collector/`: the test collector's configuration
 
 It started inside [vmsguard](https://github.com/issinoho/vmsguard) and was moved

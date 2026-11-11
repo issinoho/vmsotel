@@ -547,7 +547,8 @@ collector with the right values. How the port is done:
   and `.FIRST` stops a build whose macro does not match the machine.
   `host.arch` is `vax` (and `alpha` on Alpha, which no semantic
   convention names either).
-- **The kit** builds and installs on VAX (findings V28, V29), without
+- **The kit** builds, installs and removes on VAX (findings V28-V30),
+  as PCSI base `VMS` like the family's other VAX kits, without
   `VMSOTEL_TLS.EXE` or the SSL3 dependency. The launcher passes
   `IMP$M_ASSUME_SECURITY | IMP$M_ASSUME_ACCOUNT` to VAX's older
   `$PERSONA_ASSUME`, which with flags 0 succeeds and takes on nothing
