@@ -70,16 +70,12 @@ From the [latest release](https://github.com/issinoho/vmsotel/releases/latest):
 |---|---|
 | `ISSINOHO-I64VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS IA64 (built and tested on V8.4-2L3) |
 | `ISSINOHO-X86VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS x86-64 (built and tested on E9.2-4) |
+| `ISSINOHO-VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS VAX (built and tested on V7.3) |
 
 `SHA256SUMS` lists the SHA-256 of each kit. Requires VSI TCP/IP Services and
-VSI's SSL3 kit.
-
-On **VAX** (tested on OpenVMS V7.3 with TCP/IP Services V5.1), build it from
-source and make the kit there: `@BUILD_VMS`, then `@[.KIT]MAKE_KIT` writes
-`ISSINOHO-VMS-VMSOTEL-V0001-0-1.PCSI`. It needs no SSL3 kit, and has no TLS.
-VAX's PCSI has no `/OPTIONS`, so `PRODUCT INSTALL` asks its questions; ODS-2
-allows one dot in a name, so copy `vmsotel.conf.example` to the VAX as
-`VMSOTEL.CONF_EXAMPLE`.
+VSI's SSL3 kit; on VAX, TCP/IP Services only (tested with V5.1). There is no
+OpenSSL for VAX, so the agent sends plain HTTP there, without TLS. VAX's PCSI
+has no `/OPTIONS`, so `PRODUCT INSTALL` asks before it goes ahead.
 
 ## Installing
 
