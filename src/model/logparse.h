@@ -38,7 +38,7 @@ enum {
 typedef struct {
     const char *key;            /* a string constant */
     int is_int;
-    long long ival;
+    unsigned long ival;         /* a PID, a request number, a code */
     char sval[VO_LOG_VAL];
 } vo_log_attr;
 
@@ -55,7 +55,7 @@ typedef struct {
 
 /* VMS binary time (100 ns since 17-Nov-1858, local) to Unix ns, UTC. 0
    for a time before 1970. */
-vo_u64 vo_vms_time_to_unix_ns(vo_u64 vms, long tdf_s);
+vo_u64 vo_vms_time_to_unix_ns(vo_u64 vms_time, long tdf_s);
 
 /* ---- the operator log ---------------------------------------------- */
 

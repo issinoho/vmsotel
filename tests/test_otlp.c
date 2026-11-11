@@ -160,12 +160,12 @@ static void test_numbers(void)
     fixture_minimal(&r);
     fixture_resource(&res);
     r.cpu_present[VO_CPU_USER] = 1;
-    r.cpu_ticks[VO_CPU_USER] = 12345;               /* 123.45 s */
+    r.cpu_ticks[VO_CPU_USER] = Q(12345);               /* 123.45 s */
     r.cpu_present[VO_CPU_IDLE] = 1;
-    r.cpu_ticks[VO_CPU_IDLE] = 5;                   /* 0.05 s */
+    r.cpu_ticks[VO_CPU_IDLE] = Q(5);                   /* 0.05 s */
     r.cpu_present[VO_CPU_KERNEL] = 1;
-    r.cpu_ticks[VO_CPU_KERNEL] = 100;               /* 1.00 s */
-    r.mem_total_bytes = 18446744073709551615ULL;    /* 2^64 - 1 */
+    r.cpu_ticks[VO_CPU_KERNEL] = Q(100);               /* 1.00 s */
+    r.mem_total_bytes = Q(18446744073709551615ULL);    /* 2^64 - 1 */
     encode(&r, &res);
     CHECK_CONTAINS(out, "\"value\":{\"stringValue\":\"user\"}}],"
                         "\"startTimeUnixNano\":\"1792770509000000000\","
@@ -207,16 +207,16 @@ static void test_optional_parts(void)
     r.mem_present = 1;
 
     /* No boot time: no uptime, and no start time on boot-based sums. */
-    r.boot_ns = 0;
+    r.boot_ns = Q(0);
     encode(&r, &res);
     CHECK(strstr(out, "system.uptime") == NULL);
     CHECK_CONTAINS(out, "\"name\":\"system.memory.limit\",\"unit\":\"By\","
                         "\"sum\":{\"dataPoints\":[{\"timeUnixNano\"");
 
     /* Memory figures that do not add up never go negative. */
-    r.mem_total_bytes = 10;
-    r.mem_free_bytes = 8;
-    r.mem_modified_bytes = 8;
+    r.mem_total_bytes = Q(10);
+    r.mem_free_bytes = Q(8);
+    r.mem_modified_bytes = Q(8);
     encode(&r, &res);
     CHECK_CONTAINS(out, "\"stringValue\":\"used\"}}],\"timeUnixNano\":"
                         "\"1793477869000000000\",\"asInt\":\"0\"}");
@@ -315,7 +315,7 @@ static void test_agent_stats(void)
                         "\"1793477869000000000\",\"asDouble\":-7}]}}");
 
     /* Extremes of the signed and microsecond writers. */
-    a.skew_s = -9223372036854775807LL - 1;
+    a.skew_s = -9223372036854775807L - 1;     /* long is 64 bits here */
     a.collect_us = 12000001;
     encode_with(&r, &res, &a);
     CHECK_CONTAINS(out, "\"asDouble\":-9223372036854775808}");

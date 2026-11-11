@@ -58,15 +58,28 @@ $! would fold the next line's spaces into the list.
 $ cc_base = "/STANDARD=C99/PREFIX_LIBRARY_ENTRIES=ALL_ENTRIES" + -
             "/INCLUDE_DIRECTORY=([.src.model],[.src.otlp],[.src.platform]," + -
             "[.src.transport],[.src.sources],[.src.agent])"
+$!
+$! VAX (findings, "VAX"): Compaq C V6.4 refuses /STANDARD=C99, so the
+$! agent is C89 there (RELAXED_ANSI89 keeps '$' in names), with no
+$! 64-bit type: vo_types.h makes vo_u64 two longwords on __VAX. There
+$! is no OpenSSL, so only VMSOTEL.EXE is built: no TLS, no launcher.
+$ arch = f$getsyi("ARCH_NAME")
+$ if arch .eqs. "VAX" then -
+      cc_base = "/STANDARD=RELAXED_ANSI89/PREFIX_LIBRARY_ENTRIES=ALL_ENTRIES" + -
+                "/INCLUDE_DIRECTORY=([.src.model],[.src.otlp],[.src.platform]," + -
+                "[.src.transport],[.src.sources],[.src.agent])"
 $ failed = ""
 $ warned = ""
 $ built = ""
 $!
 $ say ""
 $ say "compiling"
+$ cobj = "vo_types"
+$ csrc = "[.src.model]vo_types.c"
+$ cflags = ""
+$ gosub compile
 $ cobj = "model"
 $ csrc = "[.src.model]model.c"
-$ cflags = ""
 $ gosub compile
 $ cobj = "procfilter"
 $ csrc = "[.src.model]procfilter.c"
@@ -98,11 +111,15 @@ $ gosub compile
 $! _SOCKADDR_LEN selects the BSD 4.4 socket structures getaddrinfo needs.
 $ cobj = "platform_posix"
 $ csrc = "[.src.platform]platform_posix.c"
+$! VAX: with it, getaddrinfo becomes __BSD44_GETADDRINFO, which is not
+$! there; platform_posix.c undefines it on VAX, where it uses inet_addr
+$! and gethostbyname, so every build file can pass it on every VMS.
 $ cflags = "/DEFINE=(_SOCKADDR_LEN)"
 $ gosub compile
 $ cflags = ""
 $!
-$ core = "[.build]model.obj,[.build]procfilter.obj,[.build]logparse.obj," + -
+$ core = "[.build]vo_types.obj," + -
+         "[.build]model.obj,[.build]procfilter.obj,[.build]logparse.obj," + -
          "[.build]otlp_json.obj,[.build]platform_posix.obj," + -
          "[.build]queue.obj,[.build]config.obj,[.build]vms_source.obj," + -
          "[.build]vms_logs.obj"
@@ -121,6 +138,11 @@ $     if f$search("[.build]vmsotel.exe") .nes. "" then -
           delete/nolog [.build]vmsotel.exe;*
 $ else
 $     built = built + " vmsotel.exe"
+$ endif
+$ if arch .eqs. "VAX"
+$ then
+$     say "VAX: no OpenSSL; vmsotel_tls.exe and vmsotel_launch.exe not built"
+$     goto summary
 $ endif
 $!
 $!---------------------------------------------------------------------
@@ -377,7 +399,7 @@ $! CLEAN: the agent's images and objects only; the probes' stay.
 $ clean:
 $ if f$search("[.build]vmsotel*.exe") .nes. "" then -
       delete/nolog [.build]vmsotel*.exe;*
-$ agent_objs = "model,procfilter,logparse,otlp_json,platform_posix,queue,config,http," + -
+$ agent_objs = "vo_types,model,procfilter,logparse,otlp_json,platform_posix,queue,config,http," + -
                "agent,vms_source,vms_logs,http_tls,agent_tls,tls,launch"
 $ i = 0
 $ clean_loop:

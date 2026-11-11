@@ -1,7 +1,9 @@
 ! descrip.mms : MMS description file for the vmsotel agent
 !
 ! Usage, from the vmsotel directory:
-!     $ MMS                build VMSOTEL.EXE and VMSOTEL_TLS.EXE
+!     $ MMS                build VMSOTEL.EXE, VMSOTEL_TLS.EXE and
+!                          VMSOTEL_LAUNCH.EXE
+!     $ MMS/MACRO=VAX=1    on VAX: VMSOTEL.EXE only
 !     $ MMS CLEAN          remove the agent's objects and images
 !
 ! Type the target in capitals. With SET PROCESS/PARSE_STYLE=EXTENDED,
@@ -37,13 +39,31 @@ SSL_EXPECT = VO_EXPECT_OPENSSL_3
 ! pointers. Only tls.obj and launch.obj, which call the ..._SHR32
 ! images, state it.
 
+! VAX (findings, "VAX"): Compaq C V6.4 refuses /STANDARD=C99, so the
+! agent is C89 there (RELAXED_ANSI89 keeps '$' in names), and there is
+! no OpenSSL, so VMSOTEL.EXE is the only image. MMS V3.2 on VAX has no
+! .IF and does not predefine __VAX__ (MMS$ARCH_NAME is there, but
+! .IFDEF cannot test a value), so the VAX is named by hand, and .FIRST
+! stops a build whose VAX macro does not match the machine.
+
+.IFDEF VAX
+VAX_BUILD = 1
+CSTD = /STANDARD=RELAXED_ANSI89
+IMAGES = [.build]vmsotel.exe
+.ELSE
+VAX_BUILD = 0
+CSTD = /STANDARD=C99
+IMAGES = [.build]vmsotel.exe, [.build]vmsotel_tls.exe, [.build]vmsotel_launch.exe
+.ENDIF
+
 INCLUDES = /INCLUDE_DIRECTORY=([.src.model],[.src.otlp],[.src.platform],-
 [.src.transport],[.src.sources],[.src.agent])
-CFLAGS = /STANDARD=C99/PREFIX_LIBRARY_ENTRIES=ALL_ENTRIES$(INCLUDES)
+CFLAGS = $(CSTD)/PREFIX_LIBRARY_ENTRIES=ALL_ENTRIES$(INCLUDES)
 
 OPT = [.build]vmsotel_ssl.opt
 
-CORE_OBJS = [.build]model.obj,[.build]procfilter.obj,[.build]logparse.obj,-
+CORE_OBJS = [.build]vo_types.obj,-
+[.build]model.obj,[.build]procfilter.obj,[.build]logparse.obj,-
 [.build]otlp_json.obj,-
 [.build]platform_posix.obj,[.build]queue.obj,[.build]config.obj,-
 [.build]vms_source.obj,[.build]vms_logs.obj
@@ -61,6 +81,8 @@ HEADERS = [.src.model]model.h,[.src.model]vo_types.h,[.src.model]version.h,-
 ! runs each action in a subprocess.
 
 .FIRST
+    @ IF (F$GETSYI("ARCH_NAME") .EQS. "VAX") .NE. $(VAX_BUILD) THEN WRITE SYS$OUTPUT "vmsotel: on VAX type MMS/MACRO=VAX=1, and only there"
+    @ IF (F$GETSYI("ARCH_NAME") .EQS. "VAX") .NE. $(VAX_BUILD) THEN EXIT %X10000002
     @- IF F$SEARCH("BUILD.DIR;1") .EQS. "" THEN CREATE/DIRECTORY [.build]
     @ DEFINE/JOB/NOLOG OPENSSL $(SSL_INCLUDE):
 
@@ -70,10 +92,13 @@ HEADERS = [.src.model]model.h,[.src.model]vo_types.h,[.src.model]version.h,-
 .LAST
     @- IF F$TRNLNM("OPENSSL","LNM$JOB") .NES. "" THEN DEASSIGN/JOB OPENSSL
 
-ALL : [.build]vmsotel.exe, [.build]vmsotel_tls.exe, [.build]vmsotel_launch.exe
-    @ WRITE SYS$OUTPUT "build complete: [.build]vmsotel.exe, vmsotel_tls.exe, vmsotel_launch.exe"
+ALL : $(IMAGES)
+    @ WRITE SYS$OUTPUT "build complete: $(IMAGES)"
 
 ! ==== the agent's objects ====
+
+[.build]vo_types.obj : [.src.model]vo_types.c, $(HEADERS)
+    $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.model]vo_types.c
 
 [.build]model.obj : [.src.model]model.c, $(HEADERS)
     $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.model]model.c
@@ -88,6 +113,7 @@ ALL : [.build]vmsotel.exe, [.build]vmsotel_tls.exe, [.build]vmsotel_launch.exe
     $(CC)$(CFLAGS)/OBJECT=$(MMS$TARGET) [.src.otlp]otlp_json.c
 
 ! _SOCKADDR_LEN selects the BSD 4.4 socket structures getaddrinfo needs.
+! On VAX platform_posix.c undefines it (see there).
 
 [.build]platform_posix.obj : [.src.platform]platform_posix.c, $(HEADERS)
     $(CC)$(CFLAGS)/DEFINE=(_SOCKADDR_LEN)/OBJECT=$(MMS$TARGET) -
@@ -170,6 +196,7 @@ $(CORE_OBJS)
 CLEAN :
     @- IF F$SEARCH("[.build]vmsotel*.exe") .NES. "" THEN DELETE/NOCONFIRM [.build]vmsotel*.exe;*
     @- IF F$SEARCH("[.build]vmsotel_ssl.opt") .NES. "" THEN DELETE/NOCONFIRM [.build]vmsotel_ssl.opt;*
+    @- IF F$SEARCH("[.build]vo_types.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]vo_types.obj;*
     @- IF F$SEARCH("[.build]model.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]model.obj;*
     @- IF F$SEARCH("[.build]procfilter.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]procfilter.obj;*
     @- IF F$SEARCH("[.build]logparse.obj") .NES. "" THEN DELETE/NOCONFIRM [.build]logparse.obj;*

@@ -6,29 +6,36 @@
 
 #include "logparse.h"
 
-#define NS_PER_S 1000000000ULL
+#define NS_PER_S 1000000000u
 
-/* 17-Nov-1858 to 1-Jan-1970 in 100 ns units. */
-#define VMS_UNIX_OFFSET 35067168000000000ULL
+/* 17-Nov-1858 to 1-Jan-1970 in 100 ns units: 35067168000000000. */
+#define VMS_UNIX_OFFSET vo_q(0x007C9567u, 0x4BEB4000u)
 
-vo_u64 vo_vms_time_to_unix_ns(vo_u64 vms, long tdf_s)
+/* Unix ns minus a signed number of seconds; 0 if that is before 1970. */
+static vo_u64 minus_seconds(vo_u64 ns, long s)
 {
-    vo_u64 ns;
-    long long adj;
+    vo_u64 adj;
 
-    if (vms < VMS_UNIX_OFFSET)
-        return 0;
-    ns = (vms - VMS_UNIX_OFFSET) * 100;
-    adj = (long long) tdf_s * (long long) NS_PER_S;
-    if (adj > 0 && (vo_u64) adj > ns)
-        return 0;
-    return adj >= 0 ? ns - (vo_u64) adj : ns + (vo_u64) -adj;
+    if (s < 0)
+        return vo_qadd(ns, vo_qmul(vo_q32((vo_u32) (0ul - (unsigned long) s)),
+                                   NS_PER_S));
+    adj = vo_qmul(vo_q32((vo_u32) s), NS_PER_S);
+    return vo_qcmp(adj, ns) > 0 ? vo_q32(0) : vo_qsub(ns, adj);
 }
 
-/* Days since 1970-01-01 of a civil date (proleptic Gregorian). */
-static long long days_from_civil(int y, int m, int d)
+vo_u64 vo_vms_time_to_unix_ns(vo_u64 vms_time, long tdf_s)
 {
-    long long era, yoe, doy, doe;
+    if (vo_qcmp(vms_time, VMS_UNIX_OFFSET) < 0)
+        return vo_q32(0);
+    return minus_seconds(vo_qmul(vo_qsub(vms_time, VMS_UNIX_OFFSET), 100),
+                         tdf_s);
+}
+
+/* Days since 1970-01-01 of a civil date (proleptic Gregorian). A long
+   holds them for 5.8 million years. */
+static long days_from_civil(int y, int m, int d)
+{
+    long era, yoe, doy, doe;
 
     y -= m <= 2;
     era = (y >= 0 ? y : y - 399) / 400;
@@ -41,7 +48,7 @@ static long long days_from_civil(int y, int m, int d)
 static void rec_clear(vo_log_rec *r, int source)
 {
     r->source = source;
-    r->time_ns = 0;
+    r->time_ns = vo_q32(0);
     r->severity = VO_SEV_INFO;
     r->severity_text = "INFO";
     r->file = NULL;
@@ -79,7 +86,7 @@ static void add_str(vo_log_rec *r, const char *key, const char *s, size_t n)
     a->sval[n] = '\0';
 }
 
-static void add_int(vo_log_rec *r, const char *key, long long v)
+static void add_int(vo_log_rec *r, const char *key, unsigned long v)
 {
     vo_log_attr *a;
 
@@ -168,7 +175,7 @@ static vo_u64 header_time(const char *line, size_t len, long tdf_s)
     const char *end = line + len;
     size_t n;
     int day, mon, year, hh, mm, ss, cc, i;
-    long long secs;
+    vo_u64 secs;
 
     while (p < end && *p == ' ')
         p++;
@@ -182,22 +189,24 @@ static vo_u64 header_time(const char *line, size_t len, long tdf_s)
     }
     if (strlen(t) < 22 || t[2] != '-' || t[6] != '-' || t[11] != ' ' ||
         t[14] != ':' || t[17] != ':' || t[20] != '.')
-        return 0;
+        return vo_q32(0);
     if (!digits(t, 2, &day) || !digits(t + 7, 4, &year) ||
         !digits(t + 12, 2, &hh) || !digits(t + 15, 2, &mm) ||
         !digits(t + 18, 2, &ss) || !digits(t + 21, 2, &cc))
-        return 0;
+        return vo_q32(0);
     for (mon = -1, i = 0; i < 12; i++)
         if (memcmp(t + 3, months[i], 3) == 0)
             mon = i;
     if (mon < 0 || day < 1 || day > 31 || hh > 23 || mm > 59 || ss > 60 ||
         year < 1970)
-        return 0;
-    secs = days_from_civil(year, mon + 1, day) * 86400LL + hh * 3600LL +
-           mm * 60LL + ss - tdf_s;
-    if (secs < 0)
-        return 0;
-    return (vo_u64) secs * NS_PER_S + (vo_u64) cc * 10000000ULL;
+        return vo_q32(0);
+    /* Seconds since 1970 as a vo_u64: a long of seconds ends in 2038
+       where long is 32 bits, which is every VMS. */
+    secs = vo_qadd(vo_qmul(vo_q32((vo_u32) days_from_civil(year, mon + 1, day)),
+                           86400u),
+                   vo_q32((vo_u32) (hh * 3600L + mm * 60L + ss)));
+    return vo_qadd(minus_seconds(vo_qmul(secs, NS_PER_S), tdf_s),
+                   vo_q32((vo_u32) cc * 10000000u));
 }
 
 int vo_opcom_is_header(const char *line, size_t len)
@@ -253,10 +262,10 @@ static void opcom_attrs(vo_log_rec *r)
     int n;
 
     if (memcmp(b, "Request ", 8) == 0 && digits(b + 8, 1, &n)) {
-        long long req = 0;
+        unsigned long req = 0;
 
         for (e = b + 8; *e >= '0' && *e <= '9'; e++)
-            req = req * 10 + (*e - '0');
+            req = req * 10 + (unsigned long) (*e - '0');
         add_int(r, "openvms.opcom.request", req);
     }
     e = strchr(b, '\n');
@@ -401,16 +410,22 @@ static unsigned le16(const unsigned char *b)
     return (unsigned) b[0] | (unsigned) b[1] << 8;
 }
 
-static vo_u64 le(const unsigned char *b, unsigned n)
+/* Little-endian, up to 4 bytes; le8 for a quadword. */
+static vo_u32 le(const unsigned char *b, unsigned n)
 {
-    vo_u64 v = 0;
+    vo_u32 v = 0;
 
     while (n-- > 0)
         v = v << 8 | b[n];
     return v;
 }
 
-static void hex32(char *out, vo_u64 v)
+static vo_u64 le8(const unsigned char *b)
+{
+    return vo_q(le(b + 4, 4), le(b, 4));
+}
+
+static void hex32(char *out, vo_u32 v)
 {
     static const char hex[] = "0123456789ABCDEF";
     int k;
@@ -431,12 +446,12 @@ static void packet(vo_log_rec *r, unsigned type, const unsigned char *d,
     case PKT_COMMAND_LINE:
         break;                          /* never: see logparse.h */
     case PKT_TIME_STAMP:
-        if (n == 8 && r->time_ns == 0)
-            r->time_ns = vo_vms_time_to_unix_ns(le(d, 8), tdf_s);
+        if (n == 8 && vo_qzero(r->time_ns))
+            r->time_ns = vo_vms_time_to_unix_ns(le8(d), tdf_s);
         break;
     case PKT_PROCESS_ID:
         if (n == 4 && !has_attr(r, "process.pid")) {
-            add_int(r, "process.pid", (long long) le(d, 4));
+            add_int(r, "process.pid", (unsigned long) le(d, 4));
             hex32(h, le(d, 4));
             add_str(r, "openvms.process.id", h, 8);
         }
@@ -588,9 +603,9 @@ int vo_nsa_decode(const unsigned char *b, size_t len, long tdf_s,
         add_str(out, "openvms.audit.type", nsa_types[type].name,
                 strlen(nsa_types[type].name));
     } else {
-        add_int(out, "openvms.audit.type_code", (long long) type);
+        add_int(out, "openvms.audit.type_code", (unsigned long) type);
     }
-    add_int(out, "openvms.audit.subtype", (long long) subtype);
+    add_int(out, "openvms.audit.subtype", (unsigned long) subtype);
     for (at = hdr, i = 0; i < count; i++) {
         unsigned psize = le16(b + at);
 

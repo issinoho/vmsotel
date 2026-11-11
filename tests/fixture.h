@@ -9,10 +9,11 @@
 
 #include "model.h"
 #include "otlp_json.h"
+#include "q.h"
 
 /* 2026-10-31T20:17:49Z and 2026-10-23T15:48:29Z, in Unix nanoseconds. */
-#define FIX_NOW_NS  1793477869000000000ULL
-#define FIX_BOOT_NS 1792770509000000000ULL
+#define FIX_NOW_NS  Q(1793477869000000000ULL)
+#define FIX_BOOT_NS Q(1792770509000000000ULL)
 
 void fixture_full(vo_raw *r);        /* every part present, three disks */
 void fixture_minimal(vo_raw *r);     /* no pagefile, no disks, no CPU */

@@ -19,11 +19,11 @@ static void test_first_and_increase(void)
     vo_wide w;
 
     memset(&w, 0, sizeof w);
-    CHECK_U64(vo_wide_update(&w, 100, T0), 100);
-    CHECK_U64(w.start_ns, T0);
-    CHECK_U64(vo_wide_update(&w, 250, T1), 250);
-    CHECK_U64(w.start_ns, T0);
-    CHECK_U64(vo_wide_update(&w, 250, T2), 250);     /* unchanged is fine */
+    CHECK_Q(vo_wide_update(&w, 100, Q(T0)), 100);
+    CHECK_Q(w.start_ns, T0);
+    CHECK_Q(vo_wide_update(&w, 250, Q(T1)), 250);
+    CHECK_Q(w.start_ns, T0);
+    CHECK_Q(vo_wide_update(&w, 250, Q(T2)), 250);     /* unchanged is fine */
 }
 
 static void test_wrap(void)
@@ -31,15 +31,15 @@ static void test_wrap(void)
     vo_wide w;
 
     memset(&w, 0, sizeof w);
-    vo_wide_update(&w, TOP - 15, T0);
+    vo_wide_update(&w, TOP - 15, Q(T0));
     /* Past 2^32: the reading restarts low and 2^32 is added. */
-    CHECK_U64(vo_wide_update(&w, 16, T1), TWO32 + 16);
-    CHECK_U64(w.start_ns, T0);
-    CHECK_U64(vo_wide_update(&w, 1000, T2), TWO32 + 1000);
+    CHECK_Q(vo_wide_update(&w, 16, Q(T1)), TWO32 + 16);
+    CHECK_Q(w.start_ns, T0);
+    CHECK_Q(vo_wide_update(&w, 1000, Q(T2)), TWO32 + 1000);
     /* A second wrap adds another 2^32. */
-    vo_wide_update(&w, TOP, T2);
-    CHECK_U64(vo_wide_update(&w, 0, T3), 2 * TWO32);
-    CHECK_U64(w.start_ns, T0);
+    vo_wide_update(&w, TOP, Q(T2));
+    CHECK_Q(vo_wide_update(&w, 0, Q(T3)), 2 * TWO32);
+    CHECK_Q(w.start_ns, T0);
 }
 
 static void test_exact_boundary(void)
@@ -48,14 +48,14 @@ static void test_exact_boundary(void)
 
     /* A drop of exactly 2^31 counts as a wrap; one less is a reset. */
     memset(&w, 0, sizeof w);
-    vo_wide_update(&w, 0x80000000u, T0);
-    CHECK_U64(vo_wide_update(&w, 0, T1), TWO32);
-    CHECK_U64(w.start_ns, T0);
+    vo_wide_update(&w, 0x80000000u, Q(T0));
+    CHECK_Q(vo_wide_update(&w, 0, Q(T1)), TWO32);
+    CHECK_Q(w.start_ns, T0);
 
     memset(&w, 0, sizeof w);
-    vo_wide_update(&w, 0x7FFFFFFFu, T0);
-    CHECK_U64(vo_wide_update(&w, 0, T1), 0);
-    CHECK_U64(w.start_ns, T1);
+    vo_wide_update(&w, 0x7FFFFFFFu, Q(T0));
+    CHECK_Q(vo_wide_update(&w, 0, Q(T1)), 0);
+    CHECK_Q(w.start_ns, T1);
 }
 
 static void test_reset(void)
@@ -65,15 +65,15 @@ static void test_reset(void)
     /* A small drop is a reset, not a wrap: no 2^32, and a new start
        time so the backend sees a new series. */
     memset(&w, 0, sizeof w);
-    vo_wide_update(&w, 5000, T0);
-    CHECK_U64(vo_wide_update(&w, 10, T1), 10);
-    CHECK_U64(w.start_ns, T1);
+    vo_wide_update(&w, 5000, Q(T0));
+    CHECK_Q(vo_wide_update(&w, 10, Q(T1)), 10);
+    CHECK_Q(w.start_ns, T1);
     /* A reset after a wrap drops the 2^32 as well. */
     memset(&w, 0, sizeof w);
-    vo_wide_update(&w, TOP, T0);
-    vo_wide_update(&w, 5000, T1);                    /* wrapped: 2^32+5000 */
-    CHECK_U64(vo_wide_update(&w, 10, T2), 10);
-    CHECK_U64(w.start_ns, T2);
+    vo_wide_update(&w, TOP, Q(T0));
+    vo_wide_update(&w, 5000, Q(T1));                    /* wrapped: 2^32+5000 */
+    CHECK_Q(vo_wide_update(&w, 10, Q(T2)), 10);
+    CHECK_Q(w.start_ns, T2);
 }
 
 static void test_restart(void)
@@ -87,21 +87,21 @@ static void test_restart(void)
        than before but under a new start: a reset, not a fall. */
     fixture_minimal(&r);
     vo_state_init(&st);
-    r.now_ns = T0;
+    r.now_ns = Q(T0);
     r.buffered_ios = TOP;
     vo_model_update(&st, &r, &s);
-    r.now_ns = T1;
+    r.now_ns = Q(T1);
     r.buffered_ios = 7;
     vo_model_update(&st, &r, &s);
-    CHECK_U64(s.buffered_ios.value, TWO32 + 7);
-    CHECK_U64(s.buffered_ios.start_ns, T0);
+    CHECK_Q(s.buffered_ios.value, TWO32 + 7);
+    CHECK_Q(s.buffered_ios.start_ns, T0);
 
     vo_state_init(&st);                              /* the restart */
-    r.now_ns = T2;
+    r.now_ns = Q(T2);
     r.buffered_ios = 9;
     vo_model_update(&st, &r, &s);
-    CHECK_U64(s.buffered_ios.value, 9);
-    CHECK_U64(s.buffered_ios.start_ns, T2);
+    CHECK_Q(s.buffered_ios.value, 9);
+    CHECK_Q(s.buffered_ios.start_ns, T2);
 }
 
 static void test_all_counters_widened(void)
@@ -112,21 +112,21 @@ static void test_all_counters_widened(void)
 
     fixture_full(&r);
     vo_state_init(&st);
-    r.now_ns = T0;
+    r.now_ns = Q(T0);
     r.faults = r.page_reads = r.page_read_ios = r.page_write_ios = TOP;
     r.direct_ios = r.buffered_ios = r.disks[0].ops = TOP;
     vo_model_update(&st, &r, &s);
-    r.now_ns = T1;
+    r.now_ns = Q(T1);
     r.faults = r.page_reads = r.page_read_ios = r.page_write_ios = 1;
     r.direct_ios = r.buffered_ios = r.disks[0].ops = 1;
     vo_model_update(&st, &r, &s);
-    CHECK_U64(s.faults.value, TWO32 + 1);
-    CHECK_U64(s.page_reads.value, TWO32 + 1);
-    CHECK_U64(s.page_read_ios.value, TWO32 + 1);
-    CHECK_U64(s.page_write_ios.value, TWO32 + 1);
-    CHECK_U64(s.direct_ios.value, TWO32 + 1);
-    CHECK_U64(s.buffered_ios.value, TWO32 + 1);
-    CHECK_U64(s.disk_ops[0].value, TWO32 + 1);
+    CHECK_Q(s.faults.value, TWO32 + 1);
+    CHECK_Q(s.page_reads.value, TWO32 + 1);
+    CHECK_Q(s.page_read_ios.value, TWO32 + 1);
+    CHECK_Q(s.page_write_ios.value, TWO32 + 1);
+    CHECK_Q(s.direct_ios.value, TWO32 + 1);
+    CHECK_Q(s.buffered_ios.value, TWO32 + 1);
+    CHECK_Q(s.disk_ops[0].value, TWO32 + 1);
 }
 
 static void test_disks_by_name(void)
@@ -140,7 +140,7 @@ static void test_disks_by_name(void)
        moves in the list keeps its own history. */
     fixture_full(&r);
     vo_state_init(&st);
-    r.now_ns = T0;
+    r.now_ns = Q(T0);
     r.disks[0].ops = TOP;            /* DKA0 */
     r.disks[2].ops = 100;            /* DKA300 */
     vo_model_update(&st, &r, &s);
@@ -148,13 +148,13 @@ static void test_disks_by_name(void)
     tmp = r.disks[0];
     r.disks[0] = r.disks[2];
     r.disks[2] = tmp;
-    r.now_ns = T1;
+    r.now_ns = Q(T1);
     r.disks[0].ops = 200;            /* DKA300, now first */
     r.disks[2].ops = 3;              /* DKA0, wrapped */
     vo_model_update(&st, &r, &s);
     CHECK(strcmp(r.disks[0].device, "X86VMS$DKA300") == 0);
-    CHECK_U64(s.disk_ops[0].value, 200);
-    CHECK_U64(s.disk_ops[2].value, TWO32 + 3);
+    CHECK_Q(s.disk_ops[0].value, 200);
+    CHECK_Q(s.disk_ops[2].value, TWO32 + 3);
     CHECK(s.disk_ops_present[0] && s.disk_ops_present[1] &&
           s.disk_ops_present[2]);
 
@@ -163,10 +163,10 @@ static void test_disks_by_name(void)
     memset(&r.disks[3], 0, sizeof r.disks[3]);
     strcpy(r.disks[3].device, "X86VMS$DKA400");
     r.disks[3].ops = 5;
-    r.now_ns = T2;
+    r.now_ns = Q(T2);
     vo_model_update(&st, &r, &s);
-    CHECK_U64(s.disk_ops[3].start_ns, T2);
-    CHECK_U64(s.disk_ops[0].start_ns, T0);
+    CHECK_Q(s.disk_ops[3].start_ns, T2);
+    CHECK_Q(s.disk_ops[0].start_ns, T0);
 }
 
 static void test_disk_table_full(void)
@@ -178,7 +178,7 @@ static void test_disk_table_full(void)
 
     fixture_minimal(&r);
     vo_state_init(&st);
-    r.now_ns = T0;
+    r.now_ns = Q(T0);
     r.ndisks = VO_MAX_DISKS;
     for (i = 0; i < VO_MAX_DISKS; i++) {
         sprintf(r.disks[i].device, "NODE$DKA%d", i);
@@ -189,7 +189,7 @@ static void test_disk_table_full(void)
 
     /* Every slot is taken; a new device gets no ops, the rest keep. */
     strcpy(r.disks[0].device, "NODE$DKA999");
-    r.now_ns = T1;
+    r.now_ns = Q(T1);
     vo_model_update(&st, &r, &s);
     CHECK(!s.disk_ops_present[0]);
     CHECK(s.disk_ops_present[1]);
@@ -205,11 +205,11 @@ static void test_cpu_backwards(void)
        reading, so it is never sent at all. */
     fixture_full(&r);
     vo_state_init(&st);
-    r.cpu_ticks[VO_CPU_INTERRUPT] = 0xFFFFFFFFFFD00000ULL;
+    r.cpu_ticks[VO_CPU_INTERRUPT] = Q(0xFFFFFFFFFFD00000ULL);
     CHECK(vo_model_update(&st, &r, &s) == 1);
     CHECK(!s.cpu_present[VO_CPU_INTERRUPT]);
     CHECK(s.cpu_present[VO_CPU_KERNEL]);
-    r.cpu_ticks[VO_CPU_INTERRUPT] -= 14;
+    r.cpu_ticks[VO_CPU_INTERRUPT] = vo_qsub(r.cpu_ticks[VO_CPU_INTERRUPT], Q(14));
     CHECK(vo_model_update(&st, &r, &s) == 0);        /* not reported twice */
     CHECK(!s.cpu_present[VO_CPU_INTERRUPT]);
 
@@ -218,21 +218,22 @@ static void test_cpu_backwards(void)
     vo_state_init(&st);
     CHECK(vo_model_update(&st, &r, &s) == 0);
     CHECK(s.cpu_present[VO_CPU_INTERRUPT]);
-    r.cpu_ticks[VO_CPU_INTERRUPT] -= 14;
-    r.cpu_ticks[VO_CPU_KERNEL] += 194;
+    r.cpu_ticks[VO_CPU_INTERRUPT] = vo_qsub(r.cpu_ticks[VO_CPU_INTERRUPT], Q(14));
+    r.cpu_ticks[VO_CPU_KERNEL] = vo_qadd(r.cpu_ticks[VO_CPU_KERNEL], Q(194));
     CHECK(vo_model_update(&st, &r, &s) == 1);
     CHECK(!s.cpu_present[VO_CPU_INTERRUPT]);
     CHECK(s.cpu_present[VO_CPU_KERNEL]);
 
-    r.cpu_ticks[VO_CPU_INTERRUPT] += 1000;           /* rising again */
+    r.cpu_ticks[VO_CPU_INTERRUPT] =                  /* rising again */
+        vo_qadd(r.cpu_ticks[VO_CPU_INTERRUPT], Q(1000));
     CHECK(vo_model_update(&st, &r, &s) == 0);        /* not reported twice */
     CHECK(!s.cpu_present[VO_CPU_INTERRUPT]);         /* and stays dropped */
 
     /* 2^63 - 1 is still a count; 2^63 is not. */
     fixture_full(&r);
     vo_state_init(&st);
-    r.cpu_ticks[VO_CPU_USER] = 0x7FFFFFFFFFFFFFFFULL;
-    r.cpu_ticks[VO_CPU_IDLE] = 0x8000000000000000ULL;
+    r.cpu_ticks[VO_CPU_USER] = Q(0x7FFFFFFFFFFFFFFFULL);
+    r.cpu_ticks[VO_CPU_IDLE] = Q(0x8000000000000000ULL);
     CHECK(vo_model_update(&st, &r, &s) == 1);
     CHECK(s.cpu_present[VO_CPU_USER]);
     CHECK(!s.cpu_present[VO_CPU_IDLE]);
@@ -291,41 +292,41 @@ static void test_procs(void)
     r.procs[0].cpu_ticks = TOP;                     /* about to wrap */
     r.procs[1].pid = 0x435;
     r.procs[1].cpu_ticks = 100;
-    r.now_ns = T0;
+    r.now_ns = Q(T0);
     vo_model_update(&st, &r, &s);
-    CHECK_U64(s.proc_cpu[0].value, TOP);
-    CHECK_U64(s.proc_cpu[0].start_ns, T0);
+    CHECK_Q(s.proc_cpu[0].value, TOP);
+    CHECK_Q(s.proc_cpu[0].start_ns, T0);
 
     /* Order changes, 0x438 wraps, 0x435 is gone, 0x500 is new. */
     r.procs[0].pid = 0x500;
     r.procs[0].cpu_ticks = 7;
     r.procs[1].pid = 0x438;
     r.procs[1].cpu_ticks = 4;
-    r.now_ns = T1;
+    r.now_ns = Q(T1);
     vo_model_update(&st, &r, &s);
-    CHECK_U64(s.proc_cpu[1].value, TWO32 + 4);      /* followed by PID */
-    CHECK_U64(s.proc_cpu[1].start_ns, T0);
-    CHECK_U64(s.proc_cpu[0].value, 7);
-    CHECK_U64(s.proc_cpu[0].start_ns, T1);          /* first seen now */
+    CHECK_Q(s.proc_cpu[1].value, TWO32 + 4);      /* followed by PID */
+    CHECK_Q(s.proc_cpu[1].start_ns, T0);
+    CHECK_Q(s.proc_cpu[0].value, 7);
+    CHECK_Q(s.proc_cpu[0].start_ns, T1);          /* first seen now */
 
     /* A PID that comes back after going is a new process: new start. */
     r.procs[0].pid = 0x435;
     r.procs[0].cpu_ticks = 5;
-    r.now_ns = T2;
+    r.now_ns = Q(T2);
     vo_model_update(&st, &r, &s);
-    CHECK_U64(s.proc_cpu[0].start_ns, T2);
-    CHECK_U64(s.proc_cpu[0].value, 5);
+    CHECK_Q(s.proc_cpu[0].start_ns, T2);
+    CHECK_Q(s.proc_cpu[0].value, 5);
 
     /* Processes that come and go never fill the table: 3 x 64 PIDs. */
     for (i = 0; i < 3 * VO_MAX_PROCS; i++) {
         r.nprocs = 1;
         r.procs[0].pid = 0x1000 + (vo_u32) i;
         r.procs[0].cpu_ticks = (vo_u32) i;
-        r.now_ns = T3 + (vo_u64) i;
+        r.now_ns = Q(T3 + (unsigned long long) i);
         vo_model_update(&st, &r, &s);
     }
-    CHECK_U64(s.proc_cpu[0].value, 3 * VO_MAX_PROCS - 1);
-    CHECK_U64(s.proc_cpu[0].start_ns, T3 + 3 * VO_MAX_PROCS - 1);
+    CHECK_Q(s.proc_cpu[0].value, 3 * VO_MAX_PROCS - 1);
+    CHECK_Q(s.proc_cpu[0].start_ns, T3 + 3 * VO_MAX_PROCS - 1);
 }
 
 static void test_names(void)

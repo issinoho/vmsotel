@@ -48,15 +48,17 @@ typedef struct {
  * The agent's own health, exported beside the system's under vmsotel.*
  * (docs/design.md, Running it).
  */
+/* Counts are unsigned long, 32 bits on VMS: an export a second would
+   take 136 years to wrap one. */
 typedef struct {
     vo_u64 start_ns;            /* when the agent started */
-    vo_u64 exports_sent;        /* payloads the collector took */
-    vo_u64 exports_failed;      /* attempts that will be retried */
-    vo_u64 exports_dropped;     /* payloads lost: queue full, rejected */
+    unsigned long exports_sent;     /* payloads the collector took */
+    unsigned long exports_failed;   /* attempts that will be retried */
+    unsigned long exports_dropped;  /* payloads lost: queue full, rejected */
     vo_u32 queue_length;
-    vo_u64 collect_us;          /* the last collection's duration */
+    unsigned long collect_us;   /* the last collection's duration */
     int have_skew;
-    long long skew_s;           /* our clock minus the collector's */
+    long skew_s;                /* our clock minus the collector's */
 } vo_agent_stats;
 
 enum {

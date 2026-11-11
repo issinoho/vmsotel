@@ -54,7 +54,7 @@
 #  include "tls.h"
 #endif
 
-#define MAX_BACKOFF_MS  3600000ULL      /* Retry-After is honoured up to here */
+#define MAX_BACKOFF_MS  3600000ul       /* Retry-After is honoured up to here */
 #define SKEW_WARN_S     2               /* the probes' threshold */
 #define SKEW_CLEAR_S    1               /* and back within this to clear */
 #define CONFIG_MAX      65536
@@ -78,7 +78,7 @@ static volatile sig_atomic_t stop_signal;
 static void vo_log(const char *fmt, ...)
 {
     vo_u64 ns = vo_time_utc_ns();
-    time_t secs = (time_t) (ns / 1000000000ULL);
+    time_t secs = (time_t) vo_qlo(vo_qdiv(ns, 1000000000u, NULL));
     struct tm *tm = gmtime(&secs);
     char line[1024];
     size_t n = 0;
@@ -86,13 +86,13 @@ static void vo_log(const char *fmt, ...)
     FILE *f;
 
     if (tm != NULL)
-        n = (size_t) snprintf(line, sizeof line,
+        n = (size_t) vo_snprintf(line, sizeof line,
                               "%04d-%02d-%02dT%02d:%02d:%02dZ ",
                               tm->tm_year + 1900, tm->tm_mon + 1,
                               tm->tm_mday, tm->tm_hour, tm->tm_min,
                               tm->tm_sec);
     va_start(ap, fmt);
-    vsnprintf(line + n, sizeof line - n, fmt, ap);
+    vo_vsnprintf(line + n, sizeof line - n, fmt, ap);
     va_end(ap);
 
     if (log_path != NULL && (f = fopen(log_path, "a")) != NULL) {
@@ -163,8 +163,8 @@ typedef struct {
     vo_agent_stats stats;
     vo_queue queue;
     char *payload;
-    vo_u64 interval_ms;
-    vo_u64 backoff_ms;
+    unsigned long interval_ms;
+    unsigned long backoff_ms;
     unsigned fail_run;          /* failed attempts since the last success */
     vo_u64 fail_since_ms;       /* monotonic time of the first of them */
     int cpu_logged[VO_CPU_MODES];
@@ -176,8 +176,8 @@ typedef struct {
     vo_logs_config logs;
     int logs_on;
     char logs_err[400];         /* the last read failure logged */
-    vo_u64 log_records;         /* queued for sending */
-    vo_u64 log_records_dropped; /* too large for max_payload */
+    unsigned long log_records;          /* queued for sending */
+    unsigned long log_records_dropped;  /* too large for max_payload */
 } agent;
 
 static vo_log_rec log_recs[LOG_BATCH];
@@ -255,6 +255,23 @@ static void collect_logs(agent *a)
     }
 }
 
+/* Monotonic milliseconds: t plus ms, and b - a for a <= b, capped at
+   what an unsigned long holds (32 bits on VMS: 49 days). */
+static vo_u64 ms_after(vo_u64 t, unsigned long ms)
+{
+    return vo_qadd(t, vo_q32((vo_u32) ms));
+}
+
+static unsigned long ms_between(vo_u64 a, vo_u64 b)
+{
+    vo_u64 d;
+
+    if (vo_qcmp(b, a) <= 0)
+        return 0;
+    d = vo_qsub(b, a);
+    return vo_qhi(d) != 0 ? 0xFFFFFFFFul : (unsigned long) vo_qlo(d);
+}
+
 static void collect(agent *a)
 {
     char err[400];
@@ -291,7 +308,8 @@ static void collect(agent *a)
     /* The precise clock: the UTC one is whole seconds on VMS, which
        made this always 0 there. */
     t1 = vo_time_precise_ns();
-    a->stats.collect_us = t1 > t0 ? (t1 - t0) / 1000 : 0;
+    a->stats.collect_us = vo_qcmp(t1, t0) > 0
+        ? (unsigned long) vo_qlo(vo_qdiv(vo_qsub(t1, t0), 1000, NULL)) : 0;
     a->stats.queue_length = a->queue.count;
 
     if (vo_otlp_encode(&a->res, &a->snap, &a->stats, a->payload,
@@ -314,7 +332,7 @@ static void collect(agent *a)
 static int send_one(agent *a)
 {
     vo_http_result r;
-    vo_u64 sent_at;
+    unsigned long sent_at;
     size_t len;
     int kind = Q_METRICS;
     const char *p = vo_queue_peek(&a->queue, &len, &kind);
@@ -323,14 +341,19 @@ static int send_one(agent *a)
     if (p == NULL)
         return 0;
     a->target.path = kind == Q_LOGS ? a->cfg.logs_path : a->cfg.path;
-    sent_at = vo_time_utc_ns() / 1000000000ULL;
+    sent_at = (unsigned long) vo_qlo(vo_qdiv(vo_time_utc_ns(), 1000000000u,
+                                             NULL));
     outcome = vo_http_post(&a->target, p, len, &r);
     if (r.have_date) {
-        long long skew = (long long) sent_at - r.date_unix;
+        /* Unsigned seconds, so the difference is taken the right way
+           round; it is small, so a long holds it. */
+        long skew = sent_at >= r.date_unix
+                    ? (long) (sent_at - r.date_unix)
+                    : -(long) (r.date_unix - sent_at);
         /* Out past 2 s, back only within 1: the Date header has whole
            seconds, so a clock 2 s off reads 2 or 3 by turns, and one
            threshold flickered (both machines, findings 44). */
-        long long lim = a->skew_warned ? SKEW_CLEAR_S : SKEW_WARN_S;
+        long lim = a->skew_warned ? SKEW_CLEAR_S : SKEW_WARN_S;
         int off = skew > lim || skew < -lim;
 
         a->stats.have_skew = 1;
@@ -339,7 +362,7 @@ static int send_one(agent *a)
            every minute. The timestamps are not corrected: the fix is NTP
            on this node, and a silent correction would hide the need. */
         if (off && !a->skew_warned)
-            vo_log("CLOCK: this system is %lld s %s the collector; every "
+            vo_log("CLOCK: this system is %ld s %s the collector; every "
                    "timestamp is off by that much -- check NTP",
                    skew < 0 ? -skew : skew, skew < 0 ? "behind" : "ahead of");
         else if (!off && a->skew_warned)
@@ -355,11 +378,10 @@ static int send_one(agent *a)
         if (a->fail_run > 0)
             vo_log("export sent again after %u failed attempt%s over %lu s",
                    a->fail_run, a->fail_run == 1 ? "" : "s",
-                   (unsigned long) ((vo_time_mono_ms() - a->fail_since_ms)
-                                    / 1000));
+                   ms_between(a->fail_since_ms, vo_time_mono_ms()) / 1000);
         a->fail_run = 0;
         if (r.rejected > 0)
-            vo_log("collector accepted the export but rejected %lld %s: %s",
+            vo_log("collector accepted the export but rejected %ld %s: %s",
                    r.rejected, kind == Q_LOGS ? "log records" : "data points",
                    r.message);
         return 1;
@@ -391,10 +413,15 @@ static int send_one(agent *a)
     a->backoff_ms = a->backoff_ms == 0 ? 1000 : a->backoff_ms * 2;
     if (a->backoff_ms > a->interval_ms)
         a->backoff_ms = a->interval_ms;
-    if (r.retry_after_s >= 0 &&
-        (vo_u64) r.retry_after_s * 1000 > a->backoff_ms)
-        a->backoff_ms = (vo_u64) r.retry_after_s * 1000 > MAX_BACKOFF_MS
-                        ? MAX_BACKOFF_MS : (vo_u64) r.retry_after_s * 1000;
+    if (r.retry_after_s >= 0) {
+        /* Capped before multiplying: a long of ms is 32 bits on VMS. */
+        unsigned long ra = r.retry_after_s >= (long) (MAX_BACKOFF_MS / 1000)
+                           ? MAX_BACKOFF_MS
+                           : (unsigned long) r.retry_after_s * 1000;
+
+        if (ra > a->backoff_ms)
+            a->backoff_ms = ra;
+    }
     if (r.status != 0)
         vo_log("export failed, HTTP %d%s%s; retrying in %lu ms; %u waiting",
                r.status, r.message[0] ? ": " : "", r.message,
@@ -420,11 +447,11 @@ static void finish(agent *a, unsigned long done)
         vo_log("stopping with %u export%s unsent; %s lost", lost,
                lost == 1 ? "" : "s", lost == 1 ? "it is" : "they are");
     }
-    vo_log("stopped: %lu collections, %llu sent, %llu failed attempts, "
-           "%llu dropped", done, a->stats.exports_sent,
+    vo_log("stopped: %lu collections, %lu sent, %lu failed attempts, "
+           "%lu dropped", done, a->stats.exports_sent,
            a->stats.exports_failed, a->stats.exports_dropped);
     if (a->logs_on)
-        vo_log("log records: %llu queued, %llu too large", a->log_records,
+        vo_log("log records: %lu queued, %lu too large", a->log_records,
                a->log_records_dropped);
 }
 
@@ -433,7 +460,7 @@ int main(int argc, char **argv)
     static agent a;
     const char *config_path = NULL;
     unsigned long cycles = 0, done = 0, drain_s = 15;
-    vo_u64 now, next_collect, next_send, drain_until = 0, last_now;
+    vo_u64 now, next_collect, next_send, drain_until, last_now;
     char err[400];
     int i;
 
@@ -474,7 +501,7 @@ int main(int argc, char **argv)
     a.target.tls = a.cfg.tls;
     a.target.cafile = a.cfg.cafile[0] ? a.cfg.cafile : NULL;
     a.target.timeout_ms = (int) a.cfg.timeout_s * 1000;
-    a.interval_ms = (vo_u64) a.cfg.interval_s * 1000;
+    a.interval_ms = (unsigned long) a.cfg.interval_s * 1000;
 
 #ifndef VO_WITH_TLS
     if (a.cfg.tls) {
@@ -534,6 +561,7 @@ int main(int argc, char **argv)
                (unsigned long) a.cfg.procs.nuser,
                a.cfg.procs.nname + a.cfg.procs.nuser == 1 ? "" : "s");
 
+    drain_until = vo_q32(0);
     next_collect = next_send = last_now = vo_time_mono_ms();
     for (;;) {
         vo_u64 wake;
@@ -544,12 +572,12 @@ int main(int argc, char **argv)
          * future by the size of the step. Collect and send now instead.
          */
         now = vo_time_mono_ms();
-        if (now + 1000 < last_now) {
-            vo_log("clock went back %llu s; collecting now",
-                   (last_now - now) / 1000);
+        if (vo_qcmp(ms_after(now, 1000), last_now) < 0) {
+            vo_log("clock went back %lu s; collecting now",
+                   ms_between(now, last_now) / 1000);
             next_collect = next_send = now;
-            if (drain_until != 0)
-                drain_until = now + (vo_u64) drain_s * 1000;
+            if (!vo_qzero(drain_until))
+                drain_until = ms_after(now, drain_s * 1000);
         }
         last_now = now;
 
@@ -559,27 +587,29 @@ int main(int argc, char **argv)
             return EXIT_SUCCESS;
         }
         now = vo_time_mono_ms();
-        if ((cycles == 0 || done < cycles) && now >= next_collect) {
+        if ((cycles == 0 || done < cycles) &&
+            vo_qcmp(now, next_collect) >= 0) {
             collect(&a);
             if (a.logs_on)
                 collect_logs(&a);
             done++;
-            next_collect += a.interval_ms;
-            if (next_collect <= now)                /* fell behind */
-                next_collect = now + a.interval_ms;
+            next_collect = ms_after(next_collect, a.interval_ms);
+            if (vo_qcmp(next_collect, now) <= 0)    /* fell behind */
+                next_collect = ms_after(now, a.interval_ms);
             if (cycles != 0 && done == cycles)
-                drain_until = now + (vo_u64) drain_s * 1000;
+                drain_until = ms_after(now, drain_s * 1000);
         }
-        while (a.queue.count > 0 && vo_time_mono_ms() >= next_send) {
+        while (a.queue.count > 0 &&
+               vo_qcmp(vo_time_mono_ms(), next_send) >= 0) {
             if (!send_one(&a)) {
-                next_send = vo_time_mono_ms() + a.backoff_ms;
+                next_send = ms_after(vo_time_mono_ms(), a.backoff_ms);
                 break;
             }
         }
 
         now = vo_time_mono_ms();
         if (cycles != 0 && done >= cycles &&
-            (a.queue.count == 0 || now >= drain_until)) {
+            (a.queue.count == 0 || vo_qcmp(now, drain_until) >= 0)) {
             /* Given up on: say so, and still give the counts, which
                matter most when the run failed (seen on x86 with TLS
                refused: the run ended without them). */
@@ -590,21 +620,24 @@ int main(int argc, char **argv)
                 vo_log("stopping with %u export%s unsent; %s lost", lost,
                        lost == 1 ? "" : "s", lost == 1 ? "it is" : "they are");
             }
-            vo_log("done: %lu collections, %llu sent, %llu failed "
-                   "attempts, %llu dropped", done,
+            vo_log("done: %lu collections, %lu sent, %lu failed "
+                   "attempts, %lu dropped", done,
                    a.stats.exports_sent, a.stats.exports_failed,
                    a.stats.exports_dropped);
             if (a.logs_on)
-                vo_log("log records: %llu queued, %llu too large",
+                vo_log("log records: %lu queued, %lu too large",
                        a.log_records, a.log_records_dropped);
             return lost > 0 ? EXIT_FAILURE : EXIT_SUCCESS;
         }
 
         /* At most a second at a time, so a stop is seen within one. */
         wake = (cycles == 0 || done < cycles) ? next_collect : drain_until;
-        if (a.queue.count > 0 && next_send < wake)
+        if (a.queue.count > 0 && vo_qcmp(next_send, wake) < 0)
             wake = next_send;
-        if (wake > now)
-            vo_sleep_ms((vo_u32) (wake - now > 1000 ? 1000 : wake - now));
+        if (vo_qcmp(wake, now) > 0) {
+            unsigned long left = ms_between(now, wake);
+
+            vo_sleep_ms((vo_u32) (left > 1000 ? 1000 : left));
+        }
     }
 }

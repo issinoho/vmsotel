@@ -7,7 +7,6 @@
 #include "model.h"
 
 #define VO_2_31 0x80000000u
-#define VO_2_32 0x100000000ULL
 
 void vo_state_init(vo_state *st)
 {
@@ -18,18 +17,18 @@ vo_u64 vo_wide_update(vo_wide *w, vo_u32 reading, vo_u64 now_ns)
 {
     if (!w->seen) {
         w->seen = 1;
-        w->base = 0;
+        w->base = vo_q32(0);
         w->start_ns = now_ns;
     } else if (reading < w->last) {
         if (w->last - reading >= VO_2_31) {
-            w->base += VO_2_32;
+            w->base = vo_qadd(w->base, vo_q(1, 0));     /* 2^32 */
         } else {
-            w->base = 0;
+            w->base = vo_q32(0);
             w->start_ns = now_ns;
         }
     }
     w->last = reading;
-    return w->base + reading;
+    return vo_qadd(w->base, vo_q32(reading));
 }
 
 static void widen(vo_wide *w, vo_u32 reading, vo_u64 now_ns, vo_count *out)
@@ -124,8 +123,9 @@ int vo_model_update(vo_state *st, const vo_raw *raw, vo_snapshot *snap)
         if (!raw->cpu_present[i])
             continue;
         if (!st->cpu_dropped[i] &&
-            (raw->cpu_ticks[i] >= 0x8000000000000000ULL ||
-             (st->cpu_seen && raw->cpu_ticks[i] < st->cpu_last[i]))) {
+            (vo_qhi(raw->cpu_ticks[i]) >= 0x80000000u ||
+             (st->cpu_seen &&
+              vo_qcmp(raw->cpu_ticks[i], st->cpu_last[i]) < 0))) {
             st->cpu_dropped[i] = 1;
             newly_dropped++;
         }

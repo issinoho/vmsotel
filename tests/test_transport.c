@@ -77,7 +77,7 @@ static void test_responses(void)
 
 static void test_dates(void)
 {
-    long long t = 0;
+    unsigned long t = 0;
 
     CHECK(vo_http_parse_date("Thu, 01 Jan 1970 00:00:00 GMT", &t));
     CHECK(t == 0);
@@ -88,6 +88,12 @@ static void test_dates(void)
     CHECK(!vo_http_parse_date("Sat, 31 Foo 2026 21:40:58 GMT", &t));
     CHECK(!vo_http_parse_date("Sat, 31 Oct 2026 25:40:58 GMT", &t));
     CHECK(!vo_http_parse_date("yesterday", &t));
+    /* The range an unsigned long of seconds holds where it is 32 bits:
+       1970 to 2105. */
+    CHECK(vo_http_parse_date("Mon, 31 Dec 2105 23:59:59 GMT", &t));
+    CHECK(t == 4291747199ul);
+    CHECK(!vo_http_parse_date("Tue, 01 Jan 2106 00:00:00 GMT", &t));
+    CHECK(!vo_http_parse_date("Wed, 31 Dec 1969 23:59:59 GMT", &t));
 }
 
 static void test_queue(void)

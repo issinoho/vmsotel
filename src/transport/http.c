@@ -25,7 +25,7 @@
 
 /* Days since 1970-01-01 of a proleptic Gregorian date; C99 has no
    timegm, and mktime would apply a local zone. */
-static long long days_from_civil(int y, int m, int d)
+static long days_from_civil(int y, int m, int d)
 {
     int era, yoe, doy, doe;
 
@@ -34,10 +34,10 @@ static long long days_from_civil(int y, int m, int d)
     yoe = y - era * 400;
     doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
     doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    return (long long) era * 146097 + doe - 719468;
+    return (long) era * 146097 + doe - 719468;
 }
 
-int vo_http_parse_date(const char *s, long long *out)
+int vo_http_parse_date(const char *s, unsigned long *out)
 {
     static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
     char mon[4];
@@ -48,10 +48,10 @@ int vo_http_parse_date(const char *s, long long *out)
         return 0;
     p = strstr(months, mon);
     if (p == NULL || (p - months) % 3 != 0 || d < 1 || d > 31 ||
-        hh > 23 || mm > 59 || ss > 60)
+        hh > 23 || mm > 59 || ss > 60 || y < 1970 || y > 2105)
         return 0;
-    *out = days_from_civil(y, (int) ((p - months) / 3) + 1, d) * 86400LL +
-           hh * 3600LL + mm * 60LL + ss;
+    *out = (unsigned long) days_from_civil(y, (int) ((p - months) / 3) + 1, d)
+           * 86400ul + (unsigned long) (hh * 3600L + mm * 60L + ss);
     return 1;
 }
 
@@ -94,13 +94,13 @@ static const char *header(const char *head, size_t n, const char *name,
 /* A JSON member's value in body[0..n): a number or a string holding
    one, as the int64 mapping allows either. */
 static int json_int(const char *body, size_t n, const char *key,
-                    long long *out)
+                    long *out)
 {
     size_t kl = strlen(key), i;
 
     for (i = 0; i + kl + 2 < n; i++) {
         size_t j;
-        long long v = 0;
+        long v = 0;
         int digits = 0;
 
         if (body[i] != '"' || memcmp(body + i + 1, key, kl) != 0 ||
@@ -109,7 +109,8 @@ static int json_int(const char *body, size_t n, const char *key,
         j = i + kl + 2;
         while (j < n && (body[j] == ' ' || body[j] == ':' || body[j] == '"'))
             j++;
-        while (j < n && body[j] >= '0' && body[j] <= '9' && digits < 18) {
+        /* Nine digits fit a 32-bit long; no collector rejects more. */
+        while (j < n && body[j] >= '0' && body[j] <= '9' && digits < 9) {
             v = v * 10 + (body[j] - '0');
             j++;
             digits++;
@@ -174,7 +175,7 @@ int vo_http_parse_response(const char *resp, size_t n, vo_http_result *res)
     if (n < 12 || memcmp(resp, "HTTP/", 5) != 0 ||
         sscanf(resp, "HTTP/%d.%d %3d", &major, &minor, &status) != 3 ||
         status < 100 || status > 599) {
-        snprintf(res->message, sizeof res->message,
+        vo_snprintf(res->message, sizeof res->message,
                  n == 0 ? "no response" : "response is not HTTP");
         return VO_HTTP_RETRY;
     }
@@ -190,7 +191,7 @@ int vo_http_parse_response(const char *resp, size_t n, vo_http_result *res)
     /* Retry-After is seconds, or an HTTP date to compare with Date. */
     v = header(resp, head_len, "Retry-After", &vlen);
     if (v != NULL && vlen > 0 && vlen < sizeof tmp) {
-        long long when;
+        unsigned long when;
 
         memcpy(tmp, v, vlen);
         tmp[vlen] = '\0';
@@ -262,7 +263,7 @@ int vo_http_post(const vo_http_target *t, const char *body, size_t len,
 
 #ifndef VO_WITH_TLS
     if (t->tls) {
-        snprintf(res->message, sizeof res->message,
+        vo_snprintf(res->message, sizeof res->message,
                  "this image was built without TLS");
         return VO_HTTP_REJECTED;
     }
@@ -284,7 +285,7 @@ int vo_http_post(const vo_http_target *t, const char *body, size_t len,
     }
 #endif
 
-    hl = snprintf(head, sizeof head,
+    hl = vo_snprintf(head, sizeof head,
                   "POST %s HTTP/1.1\r\n"
                   "Host: %s:%s\r\n"
                   "User-Agent: vmsotel/" VO_VERSION "\r\n"
@@ -293,12 +294,12 @@ int vo_http_post(const vo_http_target *t, const char *body, size_t len,
                   "Connection: close\r\n"
                   "\r\n", t->path, t->host, t->port, (unsigned long) len);
     if (hl < 0 || (size_t) hl >= sizeof head) {
-        snprintf(res->message, sizeof res->message, "request line too long");
+        vo_snprintf(res->message, sizeof res->message, "request line too long");
         outcome = VO_HTTP_REJECTED;
         goto done;
     }
     if (!s_send(&s, head, (size_t) hl) || !s_send(&s, body, len)) {
-        snprintf(res->message, sizeof res->message, "send failed");
+        vo_snprintf(res->message, sizeof res->message, "send failed");
         outcome = VO_HTTP_RETRY;
         goto done;
     }
@@ -309,7 +310,7 @@ int vo_http_post(const vo_http_target *t, const char *body, size_t len,
 
         if (r == VO_NET_TIMEOUT) {
             if (got == 0) {
-                snprintf(res->message, sizeof res->message,
+                vo_snprintf(res->message, sizeof res->message,
                          "no response within %d ms", t->timeout_ms);
                 outcome = VO_HTTP_RETRY;
                 goto done;

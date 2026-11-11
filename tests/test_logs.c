@@ -41,13 +41,13 @@ static void test_vms_time(void)
     /* I64's journal record, TIME_STAMP packet f6 a0 09 1a 1d 4d bc 00,
        journal ;3 created 1-NOV-2026 00:05:00.75 (local = UTC in
        November). */
-    CHECK_U64(vo_vms_time_to_unix_ns(0x00bc4d1d1a09a0f6ULL, 0),
+    CHECK_Q(vo_vms_time_to_unix_ns(Q(0x00bc4d1d1a09a0f6ULL), 0),
               1793491500783231000ULL);
-    CHECK_U64(vo_vms_time_to_unix_ns(0x00bc4d1d1a09a0f6ULL, 3600),
+    CHECK_Q(vo_vms_time_to_unix_ns(Q(0x00bc4d1d1a09a0f6ULL), 3600),
               1793491500783231000ULL - 3600000000000ULL);
-    CHECK_U64(vo_vms_time_to_unix_ns(0x00bc4d1d1a09a0f6ULL, -18000),
+    CHECK_Q(vo_vms_time_to_unix_ns(Q(0x00bc4d1d1a09a0f6ULL), -18000),
               1793491500783231000ULL + 18000000000000ULL);
-    CHECK_U64(vo_vms_time_to_unix_ns(1000, 0), 0);
+    CHECK_Q(vo_vms_time_to_unix_ns(Q(1000), 0), 0);
 }
 
 static void test_opcom(void)
@@ -68,13 +68,13 @@ static void test_opcom(void)
                &r) == 0);
     CHECK_U64(vo_opcom_pending_lines(&p), 3);
     CHECK(vo_opcom_pending(&p, &r) == 1);
-    CHECK_U64(r.time_ns, 1793526797660000000ULL);
+    CHECK_Q(r.time_ns, 1793526797660000000ULL);
 
     /* The empty record ends it. */
     memset(&r, 0, sizeof r);
     CHECK(feed(&p, "", &r) == 1);
     CHECK(r.source == VO_LOG_OPCOM);
-    CHECK_U64(r.time_ns, 1793526797660000000ULL);
+    CHECK_Q(r.time_ns, 1793526797660000000ULL);
     CHECK(strcmp(r.body, "Message from user IAIN on X86VMS\n"
                  "_X86VMS$FTA5864:, vmsotel probe_logs marker 1793526797")
           == 0);
@@ -97,7 +97,7 @@ static void test_opcom(void)
     CHECK(feed(&p, "Request 3, from user IAIN on STUBBY", &r) == 0);
     CHECK(feed(&p, "\"mount tape please\"", &r) == 0);
     CHECK(vo_opcom_pending(&p, &r) == 1);
-    CHECK_U64(r.time_ns, 1793476800000000000ULL);  /* two-digit day */
+    CHECK_Q(r.time_ns, 1793476800000000000ULL);  /* two-digit day */
     CHECK(iattr(&r, "openvms.opcom.request") == 3);
     CHECK(strcmp(attr(&r, "openvms.opcom.user"), "IAIN") == 0);
     CHECK(strcmp(attr(&r, "openvms.opcom.node"), "STUBBY") == 0);
@@ -136,14 +136,14 @@ static void test_opcom(void)
     feed(&p, "%%%%%%%%%%%  OPCOM   1-NOV-2026 09:53:17.66  %%%%%%%%%%%", &r);
     feed(&p, "x", &r);
     CHECK(feed(&p, "", &r) == 1);
-    CHECK_U64(r.time_ns, 1793526797660000000ULL - 3600000000000ULL);
+    CHECK_Q(r.time_ns, 1793526797660000000ULL - 3600000000000ULL);
 
     /* A header whose time does not parse: time unknown, not wrong. */
     vo_opcom_init(&p, 0);
     feed(&p, "%%%%%%%%%%%  OPCOM   garbled  %%%%%%%%%%%", &r);
     feed(&p, "x", &r);
     CHECK(feed(&p, "", &r) == 1);
-    CHECK_U64(r.time_ns, 0);
+    CHECK_Q(r.time_ns, 0);
     CHECK(vo_opcom_is_header("%%%%%%%%%%%  OPCOM   1-", 22));
     CHECK(!vo_opcom_is_header("%%%%%%%%%%% OPCOM  1-NOV", 24));
 }
@@ -220,7 +220,7 @@ static void test_nsa_i64_record(void)
     CHECK(b[8] == 0x78 && b[11] == 0x03 && b[24] == 'S');
     CHECK(vo_nsa_decode(b, at, 0, &r) == 1);
     CHECK(r.source == VO_LOG_AUDIT);
-    CHECK_U64(r.time_ns, 1793491500783231000ULL);
+    CHECK_Q(r.time_ns, 1793491500783231000ULL);
     CHECK(strcmp(attr(&r, "openvms.audit.type"), "AUDIT") == 0);
     CHECK(strcmp(attr(&r, "openvms.audit.type"), "AUDIT") == 0);
     CHECK(iattr(&r, "openvms.audit.subtype") == 12);
@@ -305,7 +305,7 @@ static void test_nsa_breakin(void)
     CHECK(r.severity == VO_SEV_WARN);
     CHECK(strcmp(attr(&r, "openvms.audit.username"), "ROOT") == 0);
     CHECK(strcmp(attr(&r, "openvms.audit.terminal"), "FTA6761:") == 0);
-    CHECK(r.time_ns == 0);
+    CHECK(vo_qzero(r.time_ns));
     /* The password and the command line go nowhere. */
     CHECK(strstr(r.body, "hunter2") == NULL);
     for (i = 0; i < r.nattrs; i++)

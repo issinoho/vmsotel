@@ -96,7 +96,7 @@ int vo_config_parse(vo_config *c, const char *text, char *err, size_t errcap)
 
         eq = memchr(p, '=', (size_t) (end - p));
         if (eq == NULL) {
-            snprintf(err, errcap, "line %d: expected key = value", line);
+            vo_snprintf(err, errcap, "line %d: expected key = value", line);
             return line;
         }
         key = p;
@@ -149,7 +149,7 @@ int vo_config_parse(vo_config *c, const char *text, char *err, size_t errcap)
                                                        : c->procs.user;
 
             if (*n == VO_FILTER_MAX) {
-                snprintf(err, errcap, "line %d: more than %d %.*s patterns",
+                vo_snprintf(err, errcap, "line %d: more than %d %.*s patterns",
                          line, VO_FILTER_MAX, (int) kl, key);
                 return line;
             }
@@ -161,7 +161,7 @@ int vo_config_parse(vo_config *c, const char *text, char *err, size_t errcap)
             size_t i = c->nextra;
 
             if (i == VO_CONFIG_MAX_EXTRA) {
-                snprintf(err, errcap, "line %d: more than %d resource "
+                vo_snprintf(err, errcap, "line %d: more than %d resource "
                          "attributes", line, VO_CONFIG_MAX_EXTRA);
                 return line;
             }
@@ -173,12 +173,12 @@ int vo_config_parse(vo_config *c, const char *text, char *err, size_t errcap)
                 c->nextra++;
             }
         } else {
-            snprintf(err, errcap, "line %d: unknown key \"%.*s\"", line,
+            vo_snprintf(err, errcap, "line %d: unknown key \"%.*s\"", line,
                      (int) (kl > 40 ? 40 : kl), key);
             return line;
         }
         if (!ok) {
-            snprintf(err, errcap, "line %d: bad value for \"%.*s\"", line,
+            vo_snprintf(err, errcap, "line %d: bad value for \"%.*s\"", line,
                      (int) (kl > 40 ? 40 : kl), key);
             return line;
         }
@@ -186,7 +186,7 @@ next:
         p = eol ? eol + 1 : end;
     }
     if (c->host[0] == '\0') {
-        snprintf(err, errcap, "no host given");
+        vo_snprintf(err, errcap, "no host given");
         return -1;
     }
     return 0;

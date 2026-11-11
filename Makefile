@@ -24,8 +24,12 @@ VMSISH  = -std=c99 -Wall -Wextra -Werror -fdollars-in-identifiers -Istub
 # 64-bit integer at all. Checked here: C89, long long an error. The
 # stub is Linux-only and may use long long, so its headers are system
 # headers for this check.
+# Compaq C on VAX also predefines vms, vax, VMS and VAX as 1 in its
+# relaxed mode: a parameter called vms became "1" (the agent's first VAX
+# build), so they are defined here too.
 VAXISH  = -std=c89 -Wall -Wextra -Werror -Wlong-long \
-          -Wdeclaration-after-statement -fdollars-in-identifiers -isystem stub
+          -Wdeclaration-after-statement -fdollars-in-identifiers -isystem stub \
+          -Dvms=1 -Dvax=1 -DVMS=1 -DVAX=1
 
 PYTHON ?= python3
 
@@ -39,11 +43,13 @@ PROBES = $(VMS_PROBES) $(B)/probe_otlp $(B)/probe_otlp_tls
 # taking "model/model.h" relative to /INCLUDE_DIRECTORY is unproven.
 AGENT_INC = -Isrc/model -Isrc/otlp -Isrc/platform -Isrc/transport \
             -Isrc/sources -Isrc/agent -Itests
-AGENT_CFLAGS = $(STRICT) $(AGENT_INC)
+# SOFT holds the VAX switches when check-soft builds into build/soft.
+AGENT_CFLAGS = $(STRICT) $(SOFT) $(AGENT_INC)
 AGENT_HDRS = $(wildcard src/*/*.h) $(wildcard tests/*.h)
 
 # Objects that do not change with TLS, and the two that do.
-CORE_OBJ = $(B)/model.o $(B)/procfilter.o $(B)/logparse.o $(B)/otlp_json.o \
+CORE_OBJ = $(B)/vo_types.o $(B)/model.o $(B)/procfilter.o $(B)/logparse.o \
+           $(B)/otlp_json.o \
            $(B)/platform_posix.o $(B)/queue.o $(B)/config.o \
            $(B)/fake_source.o $(B)/fake_logs.o
 AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub \
@@ -52,9 +58,10 @@ AGENTS = $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub \
 # The VMS source, built here against stub/ so its logic runs before it
 # costs a round trip. Like the probes it takes '$' in identifiers, so
 # no -pedantic; the stub headers come first on its include path.
-VMS_SRC_CFLAGS = $(VMSISH) $(AGENT_INC)
+VMS_SRC_CFLAGS = $(VMSISH) $(SOFT) $(AGENT_INC)
 
-TESTS = $(B)/test_model $(B)/test_logs $(B)/test_otlp $(B)/test_transport
+TESTS = $(B)/test_types $(B)/test_model $(B)/test_logs $(B)/test_otlp \
+        $(B)/test_transport
 GOLDEN = tests/golden/full.json tests/golden/minimal.json tests/golden/logs.json
 
 ALL = $(PROBES) $(TESTS) $(AGENTS) $(B)/clockjump.so
@@ -79,6 +86,8 @@ $(B)/probe_otlp: probes/probe_otlp.c | $(B)
 $(B)/probe_otlp_tls: probes/probe_otlp.c | $(B)
 	$(CC) $(STRICT) -DWITH_TLS -o $@ $< -lssl -lcrypto
 
+$(B)/vo_types.o: src/model/vo_types.c $(AGENT_HDRS) | $(B)
+	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 $(B)/model.o: src/model/model.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 $(B)/procfilter.o: src/model/procfilter.c $(AGENT_HDRS) | $(B)
@@ -140,17 +149,22 @@ $(B)/clockjump.so: tests/clockjump.c | $(B)
 $(B)/fixture.o: tests/fixture.c $(AGENT_HDRS) | $(B)
 	$(CC) $(AGENT_CFLAGS) -c -o $@ $<
 
-$(B)/test_model: tests/test_model.c $(B)/fixture.o $(B)/model.o $(B)/procfilter.o
-	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/procfilter.o
+# The test compares the formatter with glibc's snprintf, whose output
+# gcc thinks may be truncated; it is the point of the test.
+$(B)/test_types: tests/test_types.c $(B)/vo_types.o
+	$(CC) $(AGENT_CFLAGS) -Wno-format-truncation -o $@ $< $(B)/vo_types.o
 
-$(B)/test_logs: tests/test_logs.c $(B)/logparse.o
-	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/logparse.o
+$(B)/test_model: tests/test_model.c $(B)/fixture.o $(B)/model.o $(B)/procfilter.o $(B)/vo_types.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/procfilter.o $(B)/vo_types.o
 
-$(B)/test_otlp: tests/test_otlp.c $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o
-	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o
+$(B)/test_logs: tests/test_logs.c $(B)/logparse.o $(B)/vo_types.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/logparse.o $(B)/vo_types.o
 
-$(B)/test_transport: tests/test_transport.c $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o $(B)/procfilter.o
-	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o $(B)/procfilter.o
+$(B)/test_otlp: tests/test_otlp.c $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o $(B)/vo_types.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/fixture.o $(B)/model.o $(B)/otlp_json.o $(B)/vo_types.o
+
+$(B)/test_transport: tests/test_transport.c $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o $(B)/procfilter.o $(B)/vo_types.o
+	$(CC) $(AGENT_CFLAGS) -o $@ $< $(B)/http.o $(B)/queue.o $(B)/config.o $(B)/platform_posix.o $(B)/procfilter.o $(B)/vo_types.o
 
 # The generated tables are committed; regenerate them when the lists
 # in gen_items.py change.
@@ -202,8 +216,43 @@ check: all
 	! STUB_BAD_AUDIT=1 $(B)/probe_logs | grep -q 'packets add up'
 	rm -f $(B)/stub_audit.journal
 	$(PYTHON) -I tools/fake_collector.py --selftest $(B)/probe_otlp $(B)/probe_otlp_tls
+	$(MAKE) check-soft
+
+# The agent as VAX builds it (docs/design.md, "VAX"): vo_u64 as two
+# longwords, select(), inet_addr and FIONBIO for the network, RMI$_MODES for CPU
+# time. Built into build/soft and put through the same tests, golden
+# payloads and agent self-tests as the native build, so the VAX paths
+# are tested here and not only on the VAX.
+SOFT_DEFS = -DVO_SOFT64 -DVO_NET_SELECT -DVO_NET_HOSTENT -DVO_NET_IOCTL \
+            -DVO_RMI_MODES
+
+# Every agent source the VAX compiles, as C89 with no long long; and
+# no snprintf anywhere in the agent, which VAX lacks (vo_snprintf).
+VAX_SRCS = src/model/vo_types.c src/model/model.c src/model/procfilter.c \
+           src/model/logparse.c src/otlp/otlp_json.c \
+           src/platform/platform_posix.c src/transport/queue.c \
+           src/transport/http.c src/agent/config.c src/agent/agent.c \
+           src/sources/vms/vms_source.c src/sources/vms/vms_logs.c
+
+check-soft:
+	$(MAKE) B=$(B)/soft SOFT="$(SOFT_DEFS)" soft-run
+
+soft-run: $(TESTS) $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub $(B)/clockjump.so
+	$(B)/test_types | grep -q 'two longwords'
+	$(B)/test_types
+	$(B)/test_model
+	$(B)/test_logs
+	$(B)/test_otlp tests/golden
+	$(B)/test_transport vmsotel.conf.example
+	$(B)/vmsotel_vmsstub --selftest | tee $(B)/selftest.out
+	grep -q 'CPU modes from RMI\$$_MODES' $(B)/selftest.out
+	grep -q 'ticks per CPU-second: 100.0' $(B)/selftest.out
+	$(PYTHON) -I tools/fake_collector.py --agent-selftest $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
+	for f in $(VAX_SRCS); do \
+	    $(CC) $(VAXISH) $(SOFT_DEFS) $(AGENT_INC) -c -o /dev/null $$f || exit 1; done
+	! grep -n -E '(^|[^_a-z])v?snprintf *\(' $(VAX_SRCS)
 
 clean:
 	rm -rf $(B)
 
-.PHONY: all check clean items golden
+.PHONY: all check check-soft soft-run clean items golden

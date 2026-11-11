@@ -493,22 +493,30 @@ and the numbers in MONITOR are the other end.
 
 ## VAX
 
-Probed, not built (findings, "VAX"): OpenVMS V7.3 with Compaq C V6.4
-on a SIMH VAXserver 3900. The probes now build and run there; the agent
-does not yet. What a port needs, from what the probes showed:
+Built and run (findings, "VAX", V19–V23): OpenVMS V7.3 with Compaq C
+V6.4 on a SIMH VAXserver 3900. `build_vms` builds `VMSOTEL.EXE` there;
+its self-test matched SHOW and MONITOR, and its exports reached the
+collector with the right values. How the port is done:
 
 - **No 64-bit integer type.** `long long` and `__int64` do not compile.
-  `vo_u64` (`src/model/vo_types.h`) becomes an opaque type with a few
-  operations — add, subtract, compare, multiply and divide by a
-  longword, decimal — that are plain `unsigned long long` arithmetic
-  elsewhere and a pair of longwords on VAX, as `probe_q` is in the
-  probes. `make check` would build the pair version on Linux too, so
-  the golden payloads test the VAX arithmetic. The encoder already
-  uses no floating point.
-- **No `snprintf` or `vsnprintf`**: a small bounded formatter of our
-  own, for the conversions the agent uses.
-- **C89**: `/STANDARD=C99` is refused. The agent is C89 already apart
-  from the two points above.
+  `vo_u64` (`src/model/vo_types.h`) is opaque, with a few operations —
+  add, subtract, compare, multiply and divide by a longword, decimal —
+  that are plain `unsigned long long` arithmetic elsewhere and a pair
+  of longwords on VAX (`VO_SOFT64`). `make check-soft`, run by `make
+  check`, builds the agent that way on Linux and puts it through every
+  test, the golden payloads and the agent self-tests; `test_types`
+  checks the arithmetic against native integers. Values that are only
+  counts — exports, log records, the collection time, back-off — are
+  `unsigned long` (32 bits on VMS), and Unix seconds are `unsigned
+  long`, good to 2106.
+- **No `snprintf` or `vsnprintf`**: `vo_snprintf` and `vo_vsnprintf`,
+  bounded, with the conversions the agent uses; a 64-bit value is
+  printed through `vo_qstr` and `%s`. `make check-soft` fails on any
+  `snprintf` in the VAX sources.
+- **C89**: `/STANDARD=C99` is refused, so `/STANDARD=RELAXED_ANSI89`,
+  which also predefines `vms`, `vax`, `VMS` and `VAX` as 1. `make
+  check-soft` compiles every VAX source as C89 with `long long` an
+  error and those four defined.
 - **CPU time by mode comes from `RMI$_MODES`**, not the `RMI$_CPU*`
   items, which VAX does not declare: 4 reserved bytes, then per CPU a
   33-byte record — CPU ID byte, then longwords interrupt (including
@@ -518,18 +526,29 @@ does not yet. What a port needs, from what the probes showed:
   prototype for `sys$getrmi`, so the source declares one. The other
   `RMI$_` items the agent reads are accepted, written as quadwords,
   with no return length written.
-- **Name lookup without `getaddrinfo`.** It links, but fails even for a
-  dotted address (`11`, no message), and only links at all without
-  `_SOCKADDR_LEN`. `inet_addr`, then `gethostbyname`, connected.
+- **The network layer differs in three places**, each a switch in
+  `platform_posix.c`, on by default on VAX and on in `make check-soft`:
+  `VO_NET_HOSTENT`, because `getaddrinfo` links but fails even for a
+  dotted address (`11`, no message) and only links at all without
+  `_SOCKADDR_LEN` (which `platform_posix.c` therefore undefines on VAX,
+  so the build files can pass it everywhere), so names go through
+  `inet_addr` and then `gethostbyname`; `VO_NET_SELECT`, because there is no `<poll.h>`;
+  and `VO_NET_IOCTL`, because `fcntl` refuses `O_NONBLOCK` on a socket
+  (EINVAL) while `ioctl FIONBIO` works. VAX has no `socklen_t` either.
 - **No TLS**: no OpenSSL for VAX, so plain HTTP only, and no
   `VMSOTEL_TLS.EXE` in a VAX build or kit.
 - **The operator log reaches its file 10–12 minutes after OPCOM stamps
   a message** (findings V17), so `logs.opcom` lags by that much there.
   The audit journal reads and decodes as on the other two.
-- The build files: no `/STANDARD=C99`, no `/POINTER_SIZE` (pointers are
-  always 32 bits), no `_SOCKADDR_LEN`; `host.arch` `vax`; the kit's
-  base `VAXVMS`. Persona services (`launch.c`) and PCSI on V7.3 are
-  not probed yet.
+- `build_vms.com` has the VAX branch: `RELAXED_ANSI89`, no
+  `/POINTER_SIZE` (pointers are always 32 bits), only `VMSOTEL.EXE`.
+  `descrip.mms` builds the same with `MMS/MACRO=VAX=1`: MMS V3.2 has no
+  `.IF` and does not predefine `__VAX__`, so the VAX is named by hand,
+  and `.FIRST` stops a build whose macro does not match the machine.
+  `host.arch` is `vax` (and `alpha` on Alpha, which no semantic
+  convention names either). Not done: the kit, whose launcher needs
+  OpenSSL for its password and persona services that are not probed
+  on V7.3.
 
 ## Open questions
 

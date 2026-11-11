@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "q.h"
+
 static int check_failures = 0;
 static int check_count = 0;
 
@@ -29,6 +31,9 @@ static int check_count = 0;
                    __FILE__, __LINE__, #got, g_, w_); \
         } \
     } while (0)
+
+/* A vo_u64 against an unsigned long long (q.h). */
+#define CHECK_Q(got, want) CHECK_U64(ULL(got), (want))
 
 #define CHECK_CONTAINS(hay, needle) do { \
         check_count++; \

@@ -27,6 +27,17 @@
  *
  * Built without /POINTER_SIZE: the item lists are item_list_3 only
  * with 32-bit pointers, and vo_source_open() refuses to run otherwise.
+ *
+ * VAX (OpenVMS V7.3; findings, "VAX"): <rmidef.h> has none of the
+ * RMI$_CPU* items, so CPU time by mode comes from RMI$_MODES -- 4
+ * reserved bytes, then per CPU a byte of ID and eight longwords:
+ * interrupt (which includes idle), MP synch, kernel, exec, super, user,
+ * reserved, idle. Those are longwords, so they are widened here, per
+ * CPU, idle taken out of interrupt first. VO_RMI_MODES selects this,
+ * on by default where RMI$_CPUIDLE is not declared; the Linux build
+ * turns it on to run it against the stub. <starlet.h> there has no
+ * prototype for sys$getrmi, so one is given. The other RMI$_ items
+ * the source reads take a longword there too.
  */
 
 /* gethostname, as probe_otlp used it on both machines. */
@@ -54,8 +65,29 @@
 
 #include "source.h"
 
-/* 100 ns units from 17-NOV-1858 to 1970-01-01. */
-#define VMS_TO_UNIX 35067168000000000ULL
+#if !defined(RMI$_CPUIDLE) && !defined(VO_RMI_MODES)
+#  define VO_RMI_MODES 1
+#endif
+
+#ifdef __VAX
+int sys$getrmi(unsigned int efn, unsigned int csidadr, unsigned int nodename,
+               void *itmlst, void *iosb, void (*astadr)(void), int astprm);
+#endif
+
+/* 100 ns units from 17-NOV-1858 to 1970-01-01: 35067168000000000. */
+#define VMS_TO_UNIX vo_q(0x007C9567u, 0x4BEB4000u)
+#define NS_PER_S 1000000000u
+
+static vo_u32 le32(const unsigned char *b)
+{
+    return (vo_u32) b[0] | (vo_u32) b[1] << 8 | (vo_u32) b[2] << 16 |
+           (vo_u32) b[3] << 24;
+}
+
+static vo_u64 le64(const unsigned char *b)
+{
+    return vo_q(le32(b + 4), le32(b));
+}
 
 typedef struct {
     unsigned short len;
@@ -91,13 +123,20 @@ static unsigned int syi_num(int code, unsigned short len, vo_u64 *out)
     unsigned char b[8];
     unsigned short rl = 0;
     unsigned int st;
-    int i;
 
     memset(b, 0, sizeof b);
     st = syi(code, b, len, &rl);
-    *out = 0;
-    for (i = 7; i >= 0; i--)
-        *out = (*out << 8) | b[i];
+    *out = le64(b);
+    return st;
+}
+
+/* The same for an item of up to 4 bytes. */
+static unsigned int syi_long(int code, unsigned short len, vo_u32 *out)
+{
+    vo_u64 v;
+    unsigned int st = syi_num(code, len, &v);
+
+    *out = vo_qlo(v);
     return st;
 }
 
@@ -119,16 +158,14 @@ static void syi_text(int code, char *out, size_t cap)
 
 /* $GETRMI has no W form: queue, then wait on the IOSB. The return
    length is a longword (see the top of the file). */
-static unsigned int rmi(int code, unsigned short len, vo_u64 *out)
+static unsigned int rmi_buf(int code, unsigned char *b, unsigned short len)
 {
-    unsigned char b[8];
     unsigned int retlen = 0;
     unsigned short iosb[4] = { 0, 0, 0, 0 };
     ile3 ile[2];
     unsigned int st;
-    int i;
 
-    memset(b, 0, sizeof b);
+    memset(b, 0, len);
     memset(ile, 0, sizeof ile);
     ile[0].len = len;
     ile[0].code = (unsigned short) code;
@@ -139,9 +176,15 @@ static unsigned int rmi(int code, unsigned short len, vo_u64 *out)
         st = sys$synch(EFN$C_ENF, (void *) iosb);
     if ((st & 1) && !(iosb[0] & 1))
         st = iosb[0];
-    *out = 0;
-    for (i = 7; i >= 0; i--)
-        *out = (*out << 8) | b[i];
+    return st;
+}
+
+static unsigned int rmi(int code, unsigned short len, vo_u64 *out)
+{
+    unsigned char b[8];
+    unsigned int st = rmi_buf(code, b, len);
+
+    *out = le64(b);
     return st;
 }
 
@@ -181,8 +224,7 @@ static vo_u32 dvi_long(const char *dev, int code, unsigned int *st)
 
     memset(b, 0, sizeof b);
     *st = dvi(dev, code, b, sizeof b, &rl);
-    return (vo_u32) b[0] | (vo_u32) b[1] << 8 | (vo_u32) b[2] << 16 |
-           (vo_u32) b[3] << 24;
+    return le32(b);
 }
 
 static void dvi_text(const char *dev, int code, char *out, size_t cap)
@@ -204,7 +246,7 @@ static void dvi_text(const char *dev, int code, char *out, size_t cap)
 /* ---- state kept from open ------------------------------------------ */
 
 static vo_u64 boot_ns;
-static vo_u64 page_size;
+static vo_u32 page_size;
 static char host_name[256], host_type[128], os_version[16], scsnode[16];
 static const char *host_arch;
 static int cluster_member;
@@ -215,7 +257,7 @@ static int cluster_member;
  * time() returned (docs/findings.md), so getenv would let one stray
  * logical make the clock check below refuse a healthy system.
  */
-static int system_tdf(long long *tdf, char *err, size_t errcap)
+static int system_tdf(long *tdf, char *err, size_t errcap)
 {
     static char table[] = "LNM$SYSTEM_TABLE";
     static char name[] = "SYS$TIMEZONE_DIFFERENTIAL";
@@ -235,7 +277,7 @@ static int system_tdf(long long *tdf, char *err, size_t errcap)
     ile[0].retlen = &len;
     st = sys$trnlnm(&attr, (void *) &td, (void *) &nd, 0, (void *) ile);
     if (!(st & 1)) {
-        snprintf(err, errcap, "SYS$TIMEZONE_DIFFERENTIAL is not defined "
+        vo_snprintf(err, errcap, "SYS$TIMEZONE_DIFFERENTIAL is not defined "
                  "in LNM$SYSTEM_TABLE (status %%X%08X); without it local "
                  "time cannot be turned into UTC", st);
         return 0;
@@ -246,7 +288,7 @@ static int system_tdf(long long *tdf, char *err, size_t errcap)
 }
 
 /* For the log source (vms_logs.c), whose files are in local time. */
-int vo_vms_system_tdf(long long *tdf, char *err, size_t errcap)
+int vo_vms_system_tdf(long *tdf, char *err, size_t errcap)
 {
     return system_tdf(tdf, err, errcap);
 }
@@ -259,25 +301,36 @@ int vo_vms_system_tdf(long long *tdf, char *err, size_t errcap)
  * says why. The two reads are microseconds apart; 2 s allows for
  * time() truncating to the second.
  */
-static int clock_check(long long tdf, char *err, size_t errcap)
+static int clock_check(long tdf, char *err, size_t errcap)
 {
-    unsigned long long now = 0;
-    long long from_time, local, d;
+    unsigned char t[8];
+    vo_u64 now;
+    unsigned long from_time, local;
+    unsigned int st;
+    long d;
 
-    from_time = (long long) time(NULL);
-    if (!(sys$gettim((void *) &now) & 1) || now <= VMS_TO_UNIX) {
-        snprintf(err, errcap, "$GETTIM failed");
+    from_time = (unsigned long) time(NULL);
+    memset(t, 0, sizeof t);
+    st = sys$gettim((void *) t);
+    now = le64(t);
+    if (!(st & 1) || vo_qcmp(now, VMS_TO_UNIX) <= 0) {
+        vo_snprintf(err, errcap, "$GETTIM failed");
         return 0;
     }
-    local = (long long) ((now - VMS_TO_UNIX) / 10000000ULL);
-    d = from_time - (local - tdf);
+    /* Local seconds since 1970, then less the differential. Unsigned
+       longs of seconds hold until 2106 where long is 32 bits. */
+    local = (unsigned long) vo_qlo(vo_qdiv(vo_qsub(now, VMS_TO_UNIX),
+                                           10000000u, NULL));
+    local -= (unsigned long) tdf;          /* modulo 2^32: tdf is signed */
+    d = from_time >= local ? (long) (from_time - local)
+                           : -(long) (local - from_time);
     if (d < -2 || d > 2) {
-        snprintf(err, errcap, "clock check failed: time() is %lld, but "
-                 "$GETTIM less SYS$TIMEZONE_DIFFERENTIAL (%lld s) is %lld, "
-                 "%lld s apart. Every timestamp would be wrong by that "
-                 "much; check the differential and the time zone "
-                 "(@SYS$MANAGER:UTC$TIME_SETUP)", from_time, tdf,
-                 local - tdf, d);
+        vo_snprintf(err, errcap, "clock check failed: time() is %lu, but "
+                    "$GETTIM less SYS$TIMEZONE_DIFFERENTIAL (%ld s) is %lu, "
+                    "%ld s apart. Every timestamp would be wrong by that "
+                    "much; check the differential and the time zone "
+                    "(@SYS$MANAGER:UTC$TIME_SETUP)", from_time, tdf,
+                    local, d);
         return 0;
     }
     return 1;
@@ -292,18 +345,27 @@ static int clock_check(long long tdf, char *err, size_t errcap)
  * started later, across a change since boot, system.uptime is off by
  * the change (docs/design.md, Counters).
  */
-static int read_boot(long long tdf, char *err, size_t errcap)
+static int read_boot(long tdf, char *err, size_t errcap)
 {
-    vo_u64 bt;
-    long long unix100;
+    vo_u64 bt, unix100, adj;
     unsigned int st = syi_num(SYI$_BOOTTIME, 8, &bt);
 
-    if (!(st & 1) || bt <= VMS_TO_UNIX) {
-        snprintf(err, errcap, "SYI$_BOOTTIME: status %%X%08X", st);
+    if (!(st & 1) || vo_qcmp(bt, VMS_TO_UNIX) <= 0) {
+        vo_snprintf(err, errcap, "SYI$_BOOTTIME: status %%X%08X", st);
         return 0;
     }
-    unix100 = (long long) (bt - VMS_TO_UNIX) - tdf * 10000000LL;
-    boot_ns = unix100 > 0 ? (vo_u64) unix100 * 100ULL : 0;
+    /* Local 100 ns units since 1970, less the differential. */
+    unix100 = vo_qsub(bt, VMS_TO_UNIX);
+    adj = vo_qmul(vo_q32((vo_u32) (tdf < 0 ? 0ul - (unsigned long) tdf
+                                           : (unsigned long) tdf)),
+                  10000000u);
+    if (tdf < 0)
+        unix100 = vo_qadd(unix100, adj);
+    else if (vo_qcmp(unix100, adj) > 0)
+        unix100 = vo_qsub(unix100, adj);
+    else
+        unix100 = vo_q32(0);
+    boot_ns = vo_qmul(unix100, 100);
     return 1;
 }
 
@@ -312,24 +374,24 @@ static const vo_proc_filter *filter;
 int vo_source_open(const vo_proc_filter *f, char *err, size_t errcap)
 {
     char arch[32];
-    vo_u64 v;
+    vo_u32 v;
     unsigned int st;
 
     filter = f;
 #ifdef __VMS
     if (sizeof(ile3) != 12) {
-        snprintf(err, errcap, "item lists need 32-bit pointers; "
+        vo_snprintf(err, errcap, "item lists need 32-bit pointers; "
                  "build this source without /POINTER_SIZE");
         return 0;
     }
 #endif
-    st = syi_num(SYI$_PAGE_SIZE, 4, &page_size);
+    st = syi_long(SYI$_PAGE_SIZE, 4, &page_size);
     if (!(st & 1) || page_size == 0) {
-        snprintf(err, errcap, "SYI$_PAGE_SIZE: status %%X%08X", st);
+        vo_snprintf(err, errcap, "SYI$_PAGE_SIZE: status %%X%08X", st);
         return 0;
     }
     {
-        long long tdf;
+        long tdf;
 
         if (!system_tdf(&tdf, err, errcap) || !clock_check(tdf, err, errcap) ||
             !read_boot(tdf, err, errcap))
@@ -340,10 +402,13 @@ int vo_source_open(const vo_proc_filter *f, char *err, size_t errcap)
     syi_text(SYI$_VERSION, os_version, sizeof os_version);
     syi_text(SYI$_SCSNODE, scsnode, sizeof scsnode);
     syi_text(SYI$_ARCH_NAME, arch, sizeof arch);
-    /* semconv host.arch: x86_64 is amd64; IA64 is ia64. */
+    /* semconv host.arch: x86_64 is amd64; IA64 is ia64. Alpha and VAX
+       have no semconv value, so they are named as VMS names them. */
     host_arch = strcmp(arch, "x86_64") == 0 ? "amd64" :
-                strcmp(arch, "IA64") == 0 ? "ia64" : NULL;
-    cluster_member = (syi_num(SYI$_CLUSTER_MEMBER, 4, &v) & 1) ? v != 0 : -1;
+                strcmp(arch, "IA64") == 0 ? "ia64" :
+                strcmp(arch, "Alpha") == 0 ? "alpha" :
+                strcmp(arch, "VAX") == 0 ? "vax" : NULL;
+    cluster_member = (syi_long(SYI$_CLUSTER_MEMBER, 4, &v) & 1) ? v != 0 : -1;
 
     /* The TCP/IP name, as the probes sent (x86vms.issinoho.com), or
        the node name when TCP/IP has none. */
@@ -369,12 +434,61 @@ void vo_source_close(void)
 
 /* ---- one reading --------------------------------------------------- */
 
+#ifdef VO_RMI_MODES
+/*
+ * CPU time by mode from RMI$_MODES (see the top of the file). Its eight
+ * longwords per CPU are in the model's VO_CPU_* order already, with
+ * compat in the reserved slot. Each CPU's are widened past 2^32 ticks
+ * (497 days) on their own, interrupt less idle, and the totals summed.
+ * A CPU that is not active returns zeros; its last totals are kept, so
+ * the sums do not fall while it is stopped.
+ */
+#define MODES_CPUS 32
+#define MODES_REC  33
+
+static vo_wide modes_wide[MODES_CPUS][VO_CPU_MODES];
+static vo_u64 modes_last[MODES_CPUS][VO_CPU_MODES];
+
+static unsigned int read_modes(vo_raw *r)
+{
+    static unsigned char b[4 + MODES_CPUS * MODES_REC];
+    unsigned int st = rmi_buf(RMI$_MODES, b, (unsigned short) sizeof b);
+    int c, m;
+
+    if (!(st & 1))
+        return st;
+    for (m = 0; m < VO_CPU_MODES; m++) {
+        r->cpu_ticks[m] = vo_q32(0);
+        r->cpu_present[m] = 1;
+    }
+    for (c = 0; c < MODES_CPUS; c++) {
+        const unsigned char *rec = b + 4 + c * MODES_REC;
+        vo_u32 v[VO_CPU_MODES];
+        int active = 0;
+
+        for (m = 0; m < VO_CPU_MODES; m++) {
+            v[m] = le32(rec + 1 + 4 * m);
+            active |= v[m] != 0;
+        }
+        if (active) {
+            v[VO_CPU_INTERRUPT] -= v[VO_CPU_IDLE];
+            for (m = 0; m < VO_CPU_MODES; m++)
+                modes_last[c][m] = vo_wide_update(&modes_wide[c][m], v[m],
+                                                  r->now_ns);
+        }
+        for (m = 0; m < VO_CPU_MODES; m++)
+            r->cpu_ticks[m] = vo_qadd(r->cpu_ticks[m], modes_last[c][m]);
+    }
+    return st;
+}
+#else
 static const struct { int code; int mode; } cpu_items[VO_CPU_MODES] = {
     { RMI$_CPUINTSTK, VO_CPU_INTERRUPT }, { RMI$_CPUMPSYNCH, VO_CPU_MPSYNCH },
     { RMI$_CPUKERNEL, VO_CPU_KERNEL },    { RMI$_CPUEXEC, VO_CPU_EXEC },
     { RMI$_CPUSUPER, VO_CPU_SUPER },      { RMI$_CPUUSER, VO_CPU_USER },
     { RMI$_CPUCOMPAT, VO_CPU_COMPAT },    { RMI$_CPUIDLE, VO_CPU_IDLE }
 };
+#endif
 
 static const struct { int code; int state; } state_items[VO_PROC_STATES] = {
     { RMI$_COM, VO_PS_COM },   { RMI$_COMO, VO_PS_COMO },
@@ -390,7 +504,7 @@ static const struct { int code; int state; } state_items[VO_PROC_STATES] = {
         vo_u64 v_; \
         st = rmi((code), 4, &v_); \
         if (!(st & 1)) { what = #code; goto fail; } \
-        (field) = (vo_u32) v_; \
+        (field) = vo_qlo(v_); \
     } while (0)
 
 /* "_X86VMS$DKA0:" as $DEVICE_SCAN gives it, to "X86VMS$DKA0". */
@@ -485,11 +599,8 @@ static void read_procs(vo_raw *r)
                        (vo_u32) b_cpu[2] << 16 | (vo_u32) b_cpu[3] << 24;
         /* Pagelets of 512 bytes, matched with SHOW SYSTEM's pages on
            both machines (findings 11). */
-        p->mem_bytes = ((vo_u64) ((vo_u32) b_pp[0] | (vo_u32) b_pp[1] << 8 |
-                                  (vo_u32) b_pp[2] << 16 | (vo_u32) b_pp[3] << 24) +
-                        (vo_u64) ((vo_u32) b_gp[0] | (vo_u32) b_gp[1] << 8 |
-                                  (vo_u32) b_gp[2] << 16 | (vo_u32) b_gp[3] << 24))
-                       * 512ULL;
+        p->mem_bytes = vo_qmul(vo_qadd(vo_q32(le32(b_pp)), vo_q32(le32(b_gp))),
+                               512);
     }
 }
 
@@ -542,8 +653,8 @@ static void read_disks(vo_raw *r)
         out = &r->disks[r->ndisks++];
         tidy_device(name, out->device, sizeof out->device);
         strcpy(out->mountpoint, logvol);
-        out->total_bytes = (vo_u64) maxblock * 512;
-        out->free_bytes = (vo_u64) freeblocks * 512;
+        out->total_bytes = vo_qmul(vo_q32(maxblock), 512);
+        out->free_bytes = vo_qmul(vo_q32(freeblocks), 512);
         out->ops = ops;
     }
 }
@@ -553,22 +664,27 @@ int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
     const char *what = "";
     unsigned int st;
     vo_u64 v;
+    vo_u32 n;
     int i;
 
     memset(r, 0, sizeof *r);
     r->now_ns = now_ns;
     r->boot_ns = boot_ns;
 
+#ifdef VO_RMI_MODES
+    read_modes(r);              /* refused: the modes are left out */
+#else
     for (i = 0; i < VO_CPU_MODES; i++) {
         st = rmi(cpu_items[i].code, 8, &r->cpu_ticks[cpu_items[i].mode]);
         r->cpu_present[cpu_items[i].mode] = (st & 1) != 0;
     }
-    st = syi_num(SYI$_ACTIVECPU_CNT, 4, &v);
+#endif
+    st = syi_long(SYI$_ACTIVECPU_CNT, 4, &n);
     if (!(st & 1)) {
         what = "SYI$_ACTIVECPU_CNT";
         goto fail;
     }
-    r->cpu_count = (vo_u32) v;
+    r->cpu_count = n;
 
     RMI_LONG(RMI$_FAULTS, r->faults);
     RMI_LONG(RMI$_PREADS, r->page_reads);
@@ -580,34 +696,34 @@ int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
         RMI_LONG(state_items[i].code, r->proc_states[state_items[i].state]);
 
     /* Pages, on both machines (see the top of this file). */
-    st = syi_num(SYI$_MEMSIZE, 4, &v);
+    st = syi_long(SYI$_MEMSIZE, 4, &n);
     if (!(st & 1)) {
         what = "SYI$_MEMSIZE";
         goto fail;
     }
-    r->mem_total_bytes = v * page_size;
+    r->mem_total_bytes = vo_qmul(vo_q32(n), page_size);
     st = rmi(RMI$_FRLIST, 8, &v);
     if (!(st & 1)) {
         what = "RMI$_FRLIST";
         goto fail;
     }
-    r->mem_free_bytes = v * page_size;
+    r->mem_free_bytes = vo_qmul(v, page_size);
     st = rmi(RMI$_MODLIST, 8, &v);
     if (!(st & 1)) {
         what = "RMI$_MODLIST";
         goto fail;
     }
-    r->mem_modified_bytes = v * page_size;
+    r->mem_modified_bytes = vo_qmul(v, page_size);
     r->mem_present = 1;
 
     /* A system with no page file installed is not an error. */
     {
-        vo_u64 total = 0, free_pages = 0;
+        vo_u32 total = 0, free_pages = 0;
 
-        if ((syi_num(SYI$_PAGEFILE_PAGE, 4, &total) & 1) &&
-            (syi_num(SYI$_PAGEFILE_FREE, 4, &free_pages) & 1) && total > 0) {
-            r->pagefile_total_bytes = total * page_size;
-            r->pagefile_free_bytes = free_pages * page_size;
+        if ((syi_long(SYI$_PAGEFILE_PAGE, 4, &total) & 1) &&
+            (syi_long(SYI$_PAGEFILE_FREE, 4, &free_pages) & 1) && total > 0) {
+            r->pagefile_total_bytes = vo_qmul(vo_q32(total), page_size);
+            r->pagefile_free_bytes = vo_qmul(vo_q32(free_pages), page_size);
             r->pagefile_present = 1;
         }
     }
@@ -617,7 +733,7 @@ int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
     return 1;
 
 fail:
-    snprintf(err, errcap, "%s: status %%X%08X", what, st);
+    vo_snprintf(err, errcap, "%s: status %%X%08X", what, st);
     return 0;
 }
 
@@ -632,9 +748,10 @@ fail:
 int vo_source_selftest(void)
 {
     static vo_raw a, b;
-    char err[400];
-    vo_u64 memsize = 0, frlist = 0, modlist = 0, pf_page = 0, pf_free = 0;
-    vo_u64 total = 0, delta[VO_CPU_MODES];
+    char err[400], q1[VO_QSTR_MAX], q2[VO_QSTR_MAX], q3[VO_QSTR_MAX],
+         q4[VO_QSTR_MAX], q5[VO_QSTR_MAX];
+    vo_u32 memsize = 0, pf_page = 0, pf_free = 0;
+    vo_u64 frlist, modlist, total, delta[VO_CPU_MODES];
     size_t i;
     int ok = 1;
 
@@ -647,79 +764,91 @@ int vo_source_selftest(void)
         printf("FAIL  open: %s\n", err);
         return 1;
     }
-    printf("vmsotel self-test: %s, %s, %s, page size %llu\n", scsnode,
+    printf("vmsotel self-test: %s, %s, %s, page size %u\n", scsnode,
            os_version, host_arch ? host_arch : "(unknown arch)", page_size);
-    printf("  host.name %s, host.type %s, cluster member %d\n\n",
-           host_name, host_type, cluster_member);
+    printf("  host.name %s, host.type %s, cluster member %d\n", host_name,
+           host_type, cluster_member);
+#ifdef VO_RMI_MODES
+    printf("  CPU modes from RMI$_MODES\n");
+#endif
+#ifdef VO_SOFT64
+    printf("  64-bit values as two longwords\n");
+#endif
+    printf("\n");
 
-    if (!vo_source_read(&a, 0, err, sizeof err)) {
+    if (!vo_source_read(&a, vo_q32(0), err, sizeof err)) {
         printf("FAIL  read: %s\n", err);
         return 1;
     }
     printf("sampling again in 5 s\n\n");
     sleep(5);
-    if (!vo_source_read(&b, 5000000000ULL, err, sizeof err)) {
+    if (!vo_source_read(&b, vo_qmul(vo_q32(5), NS_PER_S), err, sizeof err)) {
         printf("FAIL  read: %s\n", err);
         return 1;
     }
 
     printf("Boot and uptime                                   compare with\n");
     {
-        vo_u64 now = (vo_u64) time(NULL);
-        vo_u64 up = boot_ns ? now - boot_ns / 1000000000ULL : 0;
+        unsigned long now = (unsigned long) time(NULL);
+        unsigned long booted = (unsigned long) vo_qlo(vo_qdiv(boot_ns, NS_PER_S,
+                                                              NULL));
+        unsigned long up = !vo_qzero(boot_ns) ? now - booted : 0;
 
-        printf("  uptime         %llu s = %llu %02llu:%02llu:%02llu    "
+        printf("  uptime         %lu s = %lu %02lu:%02lu:%02lu    "
                "SHOW SYSTEM/NOPROCESS \"Uptime\"\n", up, up / 86400,
                (up % 86400) / 3600, (up % 3600) / 60, up % 60);
     }
 
-    printf("\nMemory, in pages of %llu bytes                    compare with\n",
+    printf("\nMemory, in pages of %u bytes                    compare with\n",
            page_size);
-    syi_num(SYI$_MEMSIZE, 4, &memsize);
+    syi_long(SYI$_MEMSIZE, 4, &memsize);
     rmi(RMI$_FRLIST, 8, &frlist);
     rmi(RMI$_MODLIST, 8, &modlist);
-    syi_num(SYI$_PAGEFILE_PAGE, 4, &pf_page);
-    syi_num(SYI$_PAGEFILE_FREE, 4, &pf_free);
-    printf("  SYI$_MEMSIZE        %12llu    SHOW MEMORY/PHYSICAL \"Total\"\n",
+    syi_long(SYI$_PAGEFILE_PAGE, 4, &pf_page);
+    syi_long(SYI$_PAGEFILE_FREE, 4, &pf_free);
+    printf("  SYI$_MEMSIZE        %12u    SHOW MEMORY/PHYSICAL \"Total\"\n",
            memsize);
-    printf("  RMI$_FRLIST         %12llu    SHOW MEMORY/PHYSICAL \"Free\"\n",
-           frlist);
-    printf("  RMI$_MODLIST        %12llu    SHOW MEMORY/PHYSICAL \"Modified\"\n",
-           modlist);
-    printf("  SYI$_PAGEFILE_PAGE  %12llu    SHOW MEMORY/FILES, page files' "
+    printf("  RMI$_FRLIST         %12s    SHOW MEMORY/PHYSICAL \"Free\"\n",
+           vo_qstr(frlist, q1));
+    printf("  RMI$_MODLIST        %12s    SHOW MEMORY/PHYSICAL \"Modified\"\n",
+           vo_qstr(modlist, q1));
+    printf("  SYI$_PAGEFILE_PAGE  %12u    SHOW MEMORY/FILES, page files' "
            "\"Total size\" summed\n", pf_page);
-    printf("  SYI$_PAGEFILE_FREE  %12llu    SHOW MEMORY/FILES, page files' "
+    printf("  SYI$_PAGEFILE_FREE  %12u    SHOW MEMORY/FILES, page files' "
            "\"Free\" summed\n", pf_free);
-    printf("  reported: total %llu, free %llu, modified %llu bytes; page "
-           "file %llu of %llu free\n", b.mem_total_bytes, b.mem_free_bytes,
-           b.mem_modified_bytes, b.pagefile_free_bytes,
-           b.pagefile_total_bytes);
+    printf("  reported: total %s, free %s, modified %s bytes; page "
+           "file %s of %s free\n", vo_qstr(b.mem_total_bytes, q1),
+           vo_qstr(b.mem_free_bytes, q2), vo_qstr(b.mem_modified_bytes, q3),
+           vo_qstr(b.pagefile_free_bytes, q4),
+           vo_qstr(b.pagefile_total_bytes, q5));
 
     printf("\nCPU, share of all CPU time in each mode          "
            "MONITOR MODES; with N CPUs\n"
            "                                                  its figures "
            "sum to N x 100%%\n");
+    total = vo_q32(0);
     for (i = 0; i < VO_CPU_MODES; i++) {
         delta[i] = b.cpu_present[i] && a.cpu_present[i] &&
-                   b.cpu_ticks[i] >= a.cpu_ticks[i]
-                   ? b.cpu_ticks[i] - a.cpu_ticks[i] : 0;
-        total += delta[i];
+                   vo_qcmp(b.cpu_ticks[i], a.cpu_ticks[i]) >= 0
+                   ? vo_qsub(b.cpu_ticks[i], a.cpu_ticks[i]) : vo_q32(0);
+        total = vo_qadd(total, delta[i]);
     }
     for (i = 0; i < VO_CPU_MODES; i++) {
         if (!b.cpu_present[i])
             printf("  %-12s not read\n", vo_cpu_mode_name((int) i));
-        else if (b.cpu_ticks[i] < a.cpu_ticks[i])
-            printf("  %-12s WENT BACKWARDS (%lld): will not be reported\n",
+        else if (vo_qcmp(b.cpu_ticks[i], a.cpu_ticks[i]) < 0)
+            printf("  %-12s WENT BACKWARDS (by %s): will not be reported\n",
                    vo_cpu_mode_name((int) i),
-                   (long long) (b.cpu_ticks[i] - a.cpu_ticks[i]));
+                   vo_qstr(vo_qsub(a.cpu_ticks[i], b.cpu_ticks[i]), q1));
         else
             printf("  %-12s %5.1f%%\n", vo_cpu_mode_name((int) i),
-                   total ? 100.0 * (double) delta[i] / (double) total : 0.0);
+                   !vo_qzero(total) ? 100.0 * vo_qdouble(delta[i]) /
+                                      vo_qdouble(total) : 0.0);
     }
     printf("  ticks per CPU-second: %.1f (100 expected), %u CPUs\n",
-           (double) total / 5.0 / (b.cpu_count ? b.cpu_count : 1),
+           vo_qdouble(total) / 5.0 / (b.cpu_count ? b.cpu_count : 1),
            b.cpu_count);
-    if (total == 0)
+    if (vo_qzero(total))
         ok = 0;
 
     printf("\nRates over the 5 s, per second                    compare with\n");
@@ -745,9 +874,11 @@ int vo_source_selftest(void)
            "  %-20s %-16s %12s %12s %12s   SHOW DEVICE D\n",
            "device", "mount point", "blocks", "free", "operations");
     for (i = 0; i < b.ndisks; i++)
-        printf("  %-20s %-16s %12llu %12llu %12u\n", b.disks[i].device,
-               b.disks[i].mountpoint, b.disks[i].total_bytes / 512,
-               b.disks[i].free_bytes / 512, b.disks[i].ops);
+        printf("  %-20s %-16s %12s %12s %12u\n", b.disks[i].device,
+               b.disks[i].mountpoint,
+               vo_qstr(vo_qdiv(b.disks[i].total_bytes, 512, NULL), q1),
+               vo_qstr(vo_qdiv(b.disks[i].free_bytes, 512, NULL), q2),
+               b.disks[i].ops);
     if (b.ndisks == 0) {
         printf("  none\n");
         ok = 0;
@@ -759,10 +890,10 @@ int vo_source_selftest(void)
     printf("  %-8s %-15s %-12s %14s %10s\n", "PID", "name", "user",
            "CPU (s)", "pages");
     for (i = 0; i < b.nprocs && i < 12; i++)
-        printf("  %08X %-15s %-12s %11u.%02u %10llu\n", b.procs[i].pid,
+        printf("  %08X %-15s %-12s %11u.%02u %10s\n", b.procs[i].pid,
                b.procs[i].name, b.procs[i].user, b.procs[i].cpu_ticks / 100,
                b.procs[i].cpu_ticks % 100,
-               b.procs[i].mem_bytes / page_size);
+               vo_qstr(vo_qdiv(b.procs[i].mem_bytes, page_size, NULL), q1));
     if (b.nprocs > 12)
         printf("  ... and %lu more\n", (unsigned long) (b.nprocs - 12));
     if (b.nprocs == 0)

@@ -106,7 +106,9 @@ the user runs on OpenVMS and pastes the output back.
 | TCP/IP | V6.0-30 | V6.0-31 | V5.1 |
 | LAN interface | `IE0`, 192.168.0.80 | `WE1` | `XQA0`, 192.168.0.98 |
 
-The VAX (probes only so far; `docs/findings.md`, "VAX") can be driven
+The VAX (probes, and `VMSOTEL.EXE` built by `build_vms` and by
+`MMS/MACRO=VAX=1`, self-tested, and run detached for an hour with
+processes and logs; `docs/findings.md`, "VAX") can be driven
 from here, with the user's say-so, by
 `~/projects/vms-site-config/tools/vax.py` (Telnet and FTP; it has no
 SSH): `vax.py put LOCAL 'SYS$SYSDEVICE:[WORK.VMSOTEL]name'`, then
@@ -127,11 +129,14 @@ compiler.
 
 ## Hard constraints
 
-- **The probes are C89 with no 64-bit integer type**, so they build on
-  VAX, whose compiler has neither `long long` nor `__int64` nor
-  `snprintf`. Quadwords are `probe_q`; `make check` compiles every
-  probe with `-std=c89 -Wlong-long -Werror`. The agent is not yet held
-  to this; `docs/design.md`, "VAX", says what it would take.
+- **The agent and the probes build on VAX**, whose compiler is C89 with
+  no `long long`, `__int64` or `snprintf`, and predefines `vms`, `vax`,
+  `VMS` and `VAX`. So: touch `vo_u64` only through the `vo_q*`
+  operations in `vo_types.h` (the probes have `probe_q`), use
+  `vo_snprintf`, and print a `vo_u64` with `vo_qstr`. `make check`
+  enforces it: `make check-soft` builds the agent as VAX does and runs
+  every test on it, and compiles the VAX sources and the probes as
+  C89. `docs/design.md`, "VAX", has the rest.
 - **C99, not C11.** VSI C is GEM-based. No `_Generic`,
   `_Static_assert`, anonymous structs or unions, VLAs, C11 atomics or
   `<threads.h>`.

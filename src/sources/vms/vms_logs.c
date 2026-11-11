@@ -45,7 +45,7 @@
 #define RSS_MAX   255           /* NAM$C_MAXRSS */
 
 /* in vms_source.c */
-int vo_vms_system_tdf(long long *tdf, char *err, size_t errcap);
+int vo_vms_system_tdf(long *tdf, char *err, size_t errcap);
 
 /* A record: where it is, and enough of it to know it again. */
 typedef struct {
@@ -198,7 +198,7 @@ static void add_msg(char *msg, size_t cap, const char *fmt, const char *a,
         have += 2;
     }
     if (have < cap)
-        snprintf(msg + have, cap - have, fmt, a, b);
+        vo_snprintf(msg + have, cap - have, fmt, a, b);
 }
 
 void vo_logs_open(const vo_logs_config *c)
@@ -382,7 +382,7 @@ static int read_file(int file, vo_log_rec *recs, size_t max, size_t *n,
 int vo_logs_read(vo_log_rec *recs, size_t max, size_t *n, int *more,
                  char *msg, size_t msgcap)
 {
-    long long tdf = 0;
+    long tdf = 0;
     char err[200];
     int ok = 1, i;
 
@@ -396,7 +396,7 @@ int vo_logs_read(vo_log_rec *recs, size_t max, size_t *n, int *more,
         tdf = 0;            /* the source refuses to start without one */
     for (i = 0; i < 2; i++)
         if (files[i].on && !*more)
-            ok &= read_file(i, recs, max, n, more, (long) tdf, msg, msgcap);
+            ok &= read_file(i, recs, max, n, more, tdf, msg, msgcap);
     last_n = *n;
     return ok;
 }

@@ -21,7 +21,7 @@
 #include "otlp_json.h"
 
 #define VO_SERVICE_NAME "vmsotel"
-#define NS_PER_S        1000000000ULL
+#define NS_PER_S        1000000000u
 
 typedef struct {
     char *buf;
@@ -81,25 +81,25 @@ static void str(jw *w, const char *s)
    does no I/O, and the result must not depend on a C RTL. */
 static void num(jw *w, vo_u64 v)
 {
-    char d[20];
-    int n = 0;
+    char d[VO_QSTR_MAX];
 
-    do {
-        d[sizeof d - 1 - n] = (char) ('0' + (int) (v % 10));
-        v /= 10;
-        n++;
-    } while (v != 0);
-    put(w, d + sizeof d - n, (size_t) n);
+    lit(w, vo_qstr(v, d));
 }
 
-/* A signed number, for the clock skew. */
-static void snum(jw *w, long long v)
+static void numul(jw *w, unsigned long v)
+{
+    num(w, vo_qul(v));
+}
+
+/* A signed number, for the clock skew and integer log attributes:
+   longwords, so a long holds them on every machine. */
+static void snum(jw *w, long v)
 {
     if (v < 0) {
         lit(w, "-");
-        num(w, (vo_u64) -(v + 1) + 1);
+        numul(w, 0ul - (unsigned long) v);
     } else {
-        num(w, (vo_u64) v);
+        numul(w, (unsigned long) v);
     }
 }
 
@@ -107,10 +107,10 @@ static void snum(jw *w, long long v)
 static void us_seconds(jw *w, vo_u64 us)
 {
     char frac[7];
-    vo_u64 f = us % 1000000;
+    vo_u32 f;
     int i;
 
-    num(w, us / 1000000);
+    num(w, vo_qdiv(us, 1000000u, &f));
     frac[0] = '.';
     for (i = 6; i >= 1; i--) {
         frac[i] = (char) ('0' + (int) (f % 10));
@@ -131,10 +131,10 @@ static void qnum(jw *w, vo_u64 v)
    floating point, so no rounding and no dependence on float format. */
 static void tick_seconds(jw *w, vo_u64 ticks)
 {
-    unsigned cents = (unsigned) (ticks % 100);
+    vo_u32 cents;
     char frac[3];
 
-    num(w, ticks / 100);
+    num(w, vo_qdiv(ticks, 100u, &cents));
     frac[0] = '.';
     frac[1] = (char) ('0' + cents / 10);
     frac[2] = (char) ('0' + cents % 10);
@@ -215,7 +215,7 @@ static void point_n(mw *m, const vo_attr *attrs, size_t n,
             attr_str(w, &first_attr, attrs[i].key, attrs[i].value);
         lit(w, "],");
     }
-    if (start_ns != 0 && m->kind != M_GAUGE) {
+    if (!vo_qzero(start_ns) && m->kind != M_GAUGE) {
         lit(w, "\"startTimeUnixNano\":");
         qnum(w, start_ns);
         lit(w, ",");
@@ -267,12 +267,12 @@ static void counter1(mw *m, const char *name, const char *unit,
 
 static vo_u64 minus(vo_u64 a, vo_u64 b)
 {
-    return a > b ? a - b : 0;
+    return vo_qcmp(a, b) > 0 ? vo_qsub(a, b) : vo_q32(0);
 }
 
 static vo_u64 later(vo_u64 a, vo_u64 b)
 {
-    return a > b ? a : b;
+    return vo_qcmp(a, b) > 0 ? a : b;
 }
 
 static void metrics(mw *m, const vo_snapshot *s)
@@ -295,7 +295,7 @@ static void metrics(mw *m, const vo_snapshot *s)
     }
 
     metric_begin(m, "system.cpu.logical.count", "{cpu}", M_UPDOWN);
-    point(m, NULL, NULL, NULL, NULL, boot, now, V_INT, r->cpu_count);
+    point(m, NULL, NULL, NULL, NULL, boot, now, V_INT, vo_q32(r->cpu_count));
     metric_end(m);
 
     if (r->mem_present) {
@@ -304,7 +304,7 @@ static void metrics(mw *m, const vo_snapshot *s)
         metric_begin(m, "system.memory.usage", "By", M_UPDOWN);
         point(m, "system.memory.state", "used", NULL, NULL, boot, now, V_INT,
               minus(r->mem_total_bytes,
-                    r->mem_free_bytes + r->mem_modified_bytes));
+                    vo_qadd(r->mem_free_bytes, r->mem_modified_bytes)));
         point(m, "system.memory.state", "free", NULL, NULL, boot, now, V_INT,
               r->mem_free_bytes);
         point(m, "system.memory.state", "modified", NULL, NULL, boot, now, V_INT,
@@ -349,13 +349,13 @@ static void metrics(mw *m, const vo_snapshot *s)
     for (i = 0; i < VO_PROC_STATES; i++)
         point(m, "process.state", vo_proc_state_std((int) i),
               "openvms.process.state", vo_proc_state_name((int) i),
-              boot, now, V_INT, r->proc_states[i]);
+              boot, now, V_INT, vo_q32(r->proc_states[i]));
     metric_end(m);
 
-    if (boot != 0 && now > boot) {
+    if (!vo_qzero(boot) && vo_qcmp(now, boot) > 0) {
         metric_begin(m, "system.uptime", "s", M_GAUGE);
-        point(m, NULL, NULL, NULL, NULL, 0, now, V_SECONDS,
-              (now - boot) / NS_PER_S);
+        point(m, NULL, NULL, NULL, NULL, vo_q32(0), now, V_SECONDS,
+              vo_qdiv(vo_qsub(now, boot), NS_PER_S, NULL));
         metric_end(m);
     }
 
@@ -409,19 +409,21 @@ static void agent_metrics(mw *m, const vo_agent_stats *a, vo_u64 now)
 {
     metric_begin(m, "vmsotel.exports", "{request}", M_COUNTER);
     point(m, "vmsotel.outcome", "sent", NULL, NULL, a->start_ns, now, V_INT,
-          a->exports_sent);
+          vo_qul(a->exports_sent));
     point(m, "vmsotel.outcome", "failed", NULL, NULL, a->start_ns, now, V_INT,
-          a->exports_failed);
+          vo_qul(a->exports_failed));
     point(m, "vmsotel.outcome", "dropped", NULL, NULL, a->start_ns, now,
-          V_INT, a->exports_dropped);
+          V_INT, vo_qul(a->exports_dropped));
     metric_end(m);
 
     metric_begin(m, "vmsotel.queue.length", "{request}", M_GAUGE);
-    point(m, NULL, NULL, NULL, NULL, 0, now, V_INT, a->queue_length);
+    point(m, NULL, NULL, NULL, NULL, vo_q32(0), now, V_INT,
+          vo_q32(a->queue_length));
     metric_end(m);
 
     metric_begin(m, "vmsotel.collection.duration", "s", M_GAUGE);
-    point(m, NULL, NULL, NULL, NULL, 0, now, V_MICROS, a->collect_us);
+    point(m, NULL, NULL, NULL, NULL, vo_q32(0), now, V_MICROS,
+          vo_qul(a->collect_us));
     metric_end(m);
 
     if (a->have_skew) {
@@ -476,7 +478,7 @@ static void resource(jw *w, const vo_resource *res, const vo_raw_proc *proc)
         id[8] = '\0';
         sep(w, &first);
         lit(w, "{\"key\":\"process.pid\",\"value\":{\"intValue\":");
-        qnum(w, proc->pid);
+        qnum(w, vo_q32(proc->pid));
         lit(w, "}}");
         attr_str(w, &first, "openvms.process.id", id);
         attr_str(w, &first, "openvms.process.name", proc->name);
@@ -575,7 +577,7 @@ static void log_attrs(jw *w, const vo_log_rec *r)
         lit(w, "{\"key\":");
         str(w, a->key);
         lit(w, ",\"value\":{\"intValue\":\"");
-        snum(w, a->ival);
+        numul(w, a->ival);
         lit(w, "\"}}");
     }
     lit(w, "]");
@@ -588,7 +590,7 @@ static void log_attrs(jw *w, const vo_log_rec *r)
 static void log_record(jw *w, const vo_log_rec *r, vo_u64 observed_ns)
 {
     lit(w, "{");
-    if (r->time_ns != 0) {
+    if (!vo_qzero(r->time_ns)) {
         lit(w, "\"timeUnixNano\":");
         qnum(w, r->time_ns);
         lit(w, ",");
@@ -596,7 +598,7 @@ static void log_record(jw *w, const vo_log_rec *r, vo_u64 observed_ns)
     lit(w, "\"observedTimeUnixNano\":");
     qnum(w, observed_ns);
     lit(w, ",\"severityNumber\":");
-    num(w, (vo_u64) r->severity);
+    numul(w, (unsigned long) r->severity);
     if (r->severity_text != NULL) {
         lit(w, ",\"severityText\":");
         str(w, r->severity_text);

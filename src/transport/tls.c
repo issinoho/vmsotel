@@ -44,9 +44,9 @@ static void ssl_error(const char *what, char *err, size_t errcap)
 
     if (e != 0) {
         ERR_error_string_n(e, buf, sizeof buf);
-        snprintf(err, errcap, "%s: %s", what, buf);
+        vo_snprintf(err, errcap, "%s: %s", what, buf);
     } else {
-        snprintf(err, errcap, "%s failed", what);
+        vo_snprintf(err, errcap, "%s failed", what);
     }
     ERR_clear_error();
 }
@@ -100,7 +100,7 @@ vo_tls *vo_tls_open(vo_conn *conn, const char *host, const char *cafile,
 
     t = OPENSSL_zalloc(sizeof *t);
     if (t == NULL) {
-        snprintf(err, errcap, "out of memory");
+        vo_snprintf(err, errcap, "out of memory");
         return NULL;
     }
     t->conn = conn;
@@ -149,7 +149,7 @@ vo_tls *vo_tls_open(vo_conn *conn, const char *host, const char *cafile,
     for (;;) {
         r = SSL_do_handshake(t->ssl);
         if (!flush_out(t)) {
-            snprintf(err, errcap, "TLS handshake: send failed");
+            vo_snprintf(err, errcap, "TLS handshake: send failed");
             goto fail;
         }
         if (r == 1)
@@ -159,14 +159,14 @@ vo_tls *vo_tls_open(vo_conn *conn, const char *host, const char *cafile,
 
             if (n > 0)
                 continue;
-            snprintf(err, errcap, "TLS handshake: %s",
+            vo_snprintf(err, errcap, "TLS handshake: %s",
                      n == VO_NET_TIMEOUT ? "timed out" :
                      n == VO_NET_CLOSED ? "connection closed by peer" :
                      "receive failed");
             goto fail;
         }
         if (SSL_get_verify_result(t->ssl) != X509_V_OK) {
-            snprintf(err, errcap, "TLS certificate: %s",
+            vo_snprintf(err, errcap, "TLS certificate: %s",
                      X509_verify_cert_error_string(
                          SSL_get_verify_result(t->ssl)));
             ERR_clear_error();
@@ -242,7 +242,7 @@ long vo_tls_recv(vo_tls *t, void *p, size_t n)
 
 const char *vo_tls_describe(vo_tls *t, char *buf, size_t cap)
 {
-    snprintf(buf, cap, "%s %s", SSL_get_version(t->ssl),
+    vo_snprintf(buf, cap, "%s %s", SSL_get_version(t->ssl),
              SSL_CIPHER_get_name(SSL_get_current_cipher(t->ssl)));
     return buf;
 }

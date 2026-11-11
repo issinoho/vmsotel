@@ -51,12 +51,16 @@ static void audit_rec(vo_log_rec *r, unsigned long k, vo_u64 when_ns)
 {
     unsigned char b[200], ts[8];
     char user[16], node[40];
-    vo_u64 vms = when_ns / 100 + 35067168000000000ULL;
+    /* when_ns as a VMS time: 100 ns units from 17-Nov-1858. */
+    vo_u64 vms_time = vo_qadd(vo_qdiv(when_ns, 100, NULL),
+                         vo_q(0x007C9567u, 0x4BEB4000u));
     size_t at = 20;
     int i;
 
-    for (i = 0; i < 8; i++)
-        ts[i] = (unsigned char) (vms >> (8 * i));
+    for (i = 0; i < 4; i++) {
+        ts[i] = (unsigned char) (vo_qlo(vms_time) >> (8 * i));
+        ts[i + 4] = (unsigned char) (vo_qhi(vms_time) >> (8 * i));
+    }
     sprintf(user, "U%lu", k);
     sprintf(node, "SSH_PASSWORD:192.0.2.%lu", k % 250 + 1);
     at = put_pkt(b, at, 6, "SECURITY", 8);
@@ -103,7 +107,7 @@ int vo_logs_read(vo_log_rec *recs, size_t max, size_t *n, int *more,
     msg[0] = '\0';
     last_n = 0;
     if (fail)
-        snprintf(msg, msgcap, "cannot read %s: fake: no privilege",
+        vo_snprintf(msg, msgcap, "cannot read %s: fake: no privilege",
                  cfg->audit_file);
     if (!cfg->opcom && !audit_on)
         return !fail;
@@ -112,14 +116,15 @@ int vo_logs_read(vo_log_rec *recs, size_t max, size_t *n, int *more,
         t0_ms = now;
         t0_ns = vo_time_utc_ns();
         if (!fail)
-            snprintf(msg, msgcap, "fake logs: %lu waiting, then one a "
+            vo_snprintf(msg, msgcap, "fake logs: %lu waiting, then one a "
                      "second", burst);
     }
-    avail = burst + (unsigned long) ((now - t0_ms) / 1000);
+    avail = burst + (unsigned long) vo_qlo(vo_qdiv(vo_qsub(now, t0_ms), 1000,
+                                                    NULL));
     for (i = committed; i < avail && *n < max; i++) {
         unsigned long k = i + 1;
         int audit = audit_on && (!cfg->opcom || i % 2 == 1);
-        vo_u64 when = t0_ns + (vo_u64) i * 1000000000ULL;
+        vo_u64 when = vo_qadd(t0_ns, vo_qmul(vo_q32((vo_u32) i), 1000000000u));
 
         if (audit) {
             audit_rec(&recs[*n], k, when);

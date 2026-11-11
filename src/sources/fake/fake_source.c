@@ -21,7 +21,7 @@ int vo_source_open(const vo_proc_filter *f, char *err, size_t errcap)
 {
     (void) err;
     (void) errcap;
-    opened_ns = 0;
+    opened_ns = vo_q32(0);
     reads = 0;
     filter = f;
     return 1;
@@ -65,58 +65,63 @@ static void processes(vo_raw *r, vo_u32 k)
         strcpy(p->name, t[i].name);
         strcpy(p->user, t[i].user);
         p->cpu_ticks = t[i].cpu + k * 37;
-        p->mem_bytes = (vo_u64) t[i].pagelets * 512;
+        p->mem_bytes = vo_qmul(vo_q32(t[i].pagelets), 512);
     }
 }
 
 static void disk(vo_raw_disk *d, const char *dev, const char *mnt,
-                 vo_u64 blocks, vo_u64 free_blocks, vo_u32 ops)
+                 vo_u32 blocks, vo_u32 free_blocks, vo_u32 ops)
 {
     strncpy(d->device, dev, VO_NAME_MAX);
     d->device[VO_NAME_MAX] = '\0';
     strncpy(d->mountpoint, mnt, VO_NAME_MAX);
     d->mountpoint[VO_NAME_MAX] = '\0';
-    d->total_bytes = blocks * 512;
-    d->free_bytes = free_blocks * 512;
+    d->total_bytes = vo_qmul(vo_q32(blocks), 512);
+    d->free_bytes = vo_qmul(vo_q32(free_blocks), 512);
     d->ops = ops;
 }
 
 int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
 {
-    vo_u64 elapsed_ticks;
+    vo_u64 e;           /* ticks since the source opened */
     vo_u32 k;
     int i;
 
     (void) err;
     (void) errcap;
-    if (opened_ns == 0)
+    if (vo_qzero(opened_ns))
         opened_ns = now_ns;
     k = reads++;
     /* Two CPUs' worth of 10 ms ticks since the source opened. */
-    elapsed_ticks = (now_ns - opened_ns) / 10000000ULL * 2;
+    e = vo_qmul(vo_qdiv(vo_qsub(now_ns, opened_ns), 10000000u, NULL), 2);
 
     memset(r, 0, sizeof *r);
     r->now_ns = now_ns;
-    r->boot_ns = opened_ns - 86400ULL * 1000000000ULL;     /* a day ago */
+    /* A day ago: 86400 x 10^9 ns. */
+    r->boot_ns = vo_qsub(opened_ns, vo_qmul(vo_q32(86400u), 1000000000u));
 
     for (i = 0; i < VO_CPU_MODES; i++)
         r->cpu_present[i] = 1;
-    r->cpu_ticks[VO_CPU_INTERRUPT] = 0xFFFFFFFFFFD00000ULL - k * 14ULL;
-    r->cpu_ticks[VO_CPU_MPSYNCH] = 87746;
-    r->cpu_ticks[VO_CPU_KERNEL] = 25332517 + elapsed_ticks / 5;
-    r->cpu_ticks[VO_CPU_EXEC] = 1099358 + elapsed_ticks / 50;
-    r->cpu_ticks[VO_CPU_SUPER] = 124012;
-    r->cpu_ticks[VO_CPU_USER] = 1871610 + elapsed_ticks / 100;
-    r->cpu_ticks[VO_CPU_COMPAT] = 0;
-    r->cpu_ticks[VO_CPU_IDLE] = 111328837 + elapsed_ticks
-                                - elapsed_ticks / 5 - elapsed_ticks / 50
-                                - elapsed_ticks / 100;
+    r->cpu_ticks[VO_CPU_INTERRUPT] = vo_qsub(vo_q(0xFFFFFFFFu, 0xFFD00000u),
+                                             vo_q32(k * 14u));
+    r->cpu_ticks[VO_CPU_MPSYNCH] = vo_q32(87746);
+    r->cpu_ticks[VO_CPU_KERNEL] = vo_qadd(vo_q32(25332517),
+                                          vo_qdiv(e, 5, NULL));
+    r->cpu_ticks[VO_CPU_EXEC] = vo_qadd(vo_q32(1099358), vo_qdiv(e, 50, NULL));
+    r->cpu_ticks[VO_CPU_SUPER] = vo_q32(124012);
+    r->cpu_ticks[VO_CPU_USER] = vo_qadd(vo_q32(1871610), vo_qdiv(e, 100, NULL));
+    r->cpu_ticks[VO_CPU_COMPAT] = vo_q32(0);
+    r->cpu_ticks[VO_CPU_IDLE] =
+        vo_qsub(vo_qsub(vo_qsub(vo_qadd(vo_q32(111328837), e),
+                                vo_qdiv(e, 5, NULL)),
+                        vo_qdiv(e, 50, NULL)),
+                vo_qdiv(e, 100, NULL));
     r->cpu_count = 2;
 
     r->mem_present = 1;
-    r->mem_total_bytes = 930264ULL * 8192;
-    r->mem_free_bytes = (699303ULL - (k % 7) * 3) * 8192;
-    r->mem_modified_bytes = 24632ULL * 8192;
+    r->mem_total_bytes = vo_qmul(vo_q32(930264u), 8192);
+    r->mem_free_bytes = vo_qmul(vo_q32(699303u - (k % 7) * 3), 8192);
+    r->mem_modified_bytes = vo_qmul(vo_q32(24632u), 8192);
 
     r->faults = 53843179u + k * 13u;
     r->page_reads = 12801905u + k;
@@ -126,8 +131,8 @@ int vo_source_read(vo_raw *r, vo_u64 now_ns, char *err, size_t errcap)
     r->buffered_ios = 0xFFFFF000u + k * 2048u;      /* wraps at k = 2 */
 
     r->pagefile_present = 1;
-    r->pagefile_total_bytes = 233216ULL * 512;
-    r->pagefile_free_bytes = 233216ULL * 512;
+    r->pagefile_total_bytes = vo_qmul(vo_q32(233216u), 512);
+    r->pagefile_free_bytes = vo_qmul(vo_q32(233216u), 512);
 
     r->proc_states[VO_PS_CUR] = 1;
     r->proc_states[VO_PS_LEF] = 13 - (k % 2);
