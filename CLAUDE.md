@@ -99,12 +99,12 @@ not weaken that further.
 You cannot reach x86 or I64. The workflow: develop and test on Linux,
 the user runs on OpenVMS and pastes the output back.
 
-| | x86-64 | Itanium rx2660 | VAX |
-| --- | --- | --- | --- |
-| OS | E9.2-4 (a QEMU guest) | V8.4-2L3 | V7.3 (SIMH VAXserver 3900) |
-| C | VSI C V7.7-003 | VSI C V7.4-001 | Compaq C V6.4-005 |
-| TCP/IP | V6.0-30 | V6.0-31 | V5.1 |
-| LAN interface | `IE0`, 192.168.0.80 | `WE1` | `XQA0`, 192.168.0.98 |
+| | x86-64 | Itanium rx2660 | VAX | Alpha |
+| --- | --- | --- | --- | --- |
+| OS | E9.2-4 (a QEMU guest) | V8.4-2L3 | V7.3 (SIMH VAXserver 3900) | V8.4-2L2 (Charon-AXP AlphaServer DS10L) |
+| C | VSI C V7.7-003 | VSI C V7.4-001 | Compaq C V6.4-005 | VSI C V7.4-002 |
+| TCP/IP | V6.0-30 | V6.0-31 | V5.1 | V6.0-31 |
+| LAN interface | `IE0`, 192.168.0.80 | `WE1` | `XQA0`, 192.168.0.98 | 192.168.0.100 |
 
 The VAX (probes, and `VMSOTEL.EXE` built by `build_vms` and by
 `MMS/MACRO=VAX=1`, self-tested, and run detached for an hour with
@@ -119,14 +119,28 @@ seconds (600), shorter than `build_probes LOGS`; give it 1700. Other
 projects (vms-hass) use the same VAX at the same time: keep to
 `[WORK.VMSOTEL]` and leave their `VAXRUN_*` files alone.
 
+The Alpha, AXPBOX (`docs/findings.md`, "Alpha"), has SSH key login as
+IAIN and is driven from here by `tools/vms.sh alpha ...` (the vms-*
+family's script; copy `tools/nodes.conf.example` to the git-ignored
+`tools/nodes.conf`). The tree lives in `DISK$WORK:[IAIN.VMSOTEL]`; push
+files with `vms.sh alpha put FILE -- SUBDIR`. Interactive SSH sessions
+there end early or never start the procedure, so run anything longer
+than a minute with `vms.sh alpha batch LOCAL.COM` (SUBMIT, then the
+batch log is fetched). IAIN has **every privilege by default** there:
+an unprivileged test must turn them off first. It has SSL3 3.0 and
+no MMS or MMK, so `descrip.mms` cannot run on it. The hass agent runs
+on it too.
+
 The test collector runs in Docker on **docker-nuc, 192.168.0.218**
 (not the development laptop). The probes default to it: port 4318 for
 plain HTTP, 4319 for TLS. It has its own clone of this repository at
 `~/projects/vmsotel`; commands for it must `cd` there first.
 
-Do not assume a finding on one machine holds on the other. The point
-of having two is that they differ in architecture, OS version and
-compiler.
+Do not assume a finding on one machine holds on another. The point
+of having several is that they differ in architecture, OS version and
+compiler. The Alpha found, the first time it ran, that `RMI$_FRLIST`
+and `MODLIST` take only a longword there, though x86 and I64 take a
+quadword.
 
 ## Hard constraints
 

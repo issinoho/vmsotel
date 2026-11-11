@@ -179,10 +179,18 @@ static unsigned int rmi_buf(int code, unsigned char *b, unsigned short len)
     return st;
 }
 
+/* FRLIST and MODLIST are quadwords on x86 and I64 (findings 7) and
+   take 8 bytes on VAX, but Alpha refuses 8 bytes with SS$_BADPARAM and
+   takes a longword (findings A6). So a quadword refused is asked for
+   again as a longword; rmi_buf zeroes the buffer, so its high half
+   reads as 0. */
 static unsigned int rmi(int code, unsigned short len, vo_u64 *out)
 {
     unsigned char b[8];
     unsigned int st = rmi_buf(code, b, len);
+
+    if (st == SS$_BADPARAM && len == 8)
+        st = rmi_buf(code, b, 4);
 
     *out = le64(b);
     return st;

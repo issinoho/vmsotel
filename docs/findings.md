@@ -296,3 +296,45 @@ time.
 Not yet run on VAX: any probe without privilege; the agent detached
 (`VMSOTEL_START`), with the logs on, or for longer than three exports;
 `descrip.mms` (it still asks for `/STANDARD=C99`); the kit.
+
+## Alpha
+
+A fourth machine: **Alpha** = AXPBOX, an AlphaServer DS10L (EV6) under
+Charon-AXP, OpenVMS V8.4-2L2, VSI C V7.4-002 (`__DECC_VER 70490002`),
+TCP/IP Services V6.0-31, SSL3 3.0.22, 1 CPU, 4 GB, 8192-byte pages. It
+has SSH key login, so it was driven from the development machine with
+`tools/vms.sh alpha` (files in `DISK$WORK:[IAIN.VMSOTEL]`), not pasted.
+Runs on **2026-11-11**, as IAIN, whose default privileges are all of
+them (`Process privileges:` ACNT … WORLD); nothing has run unprivileged.
+The tree was the commit after 0b94aa6 with the two fixes below; the
+probes ran from 0b94aa6 itself. Interactive SSH runs of more than a
+minute lost their output (the session ended while the procedure ran
+on), so the self-test and exports ran as batch jobs.
+
+| # | Question | Alpha | Evidence / notes |
+| --- | --- | --- | --- |
+| A1 | The probes build; no LINK warnings | yes, all seven | `built:  probe_syi probe_rmi probe_jpi probe_dvi probe_logs probe_otlp probe_otlp_tls`; `OpenSSL: SYS$LIBRARY:SSL3$LIBSSL_SHR32, SYS$LIBRARY:SSL3$LIBCRYPTO_SHR32, headers SSL3$INCLUDE` |
+| A2 | Quadword arithmetic; `__alpha` | yes | `quadword check: 12345678901 18446744073709551615 -12345678900 1794268800`; `built with __VMS, __alpha, __DECC_VER 70490002` |
+| A3 | Item-list layout is 12 bytes | yes | `item list entry: 12 bytes, pointers 4 bytes` |
+| A4 | `SYI$_` items | all but one | as on the others: `SYI$_FREE_PAGES  not declared`, the rest accepted with the same sizes (`HW_MODEL` 2, `CLUSTER_MEMBER` 1, `CLUSTER_NODES` 2, `MAXPROCESSCNT` 2). `ARCH_NAME "Alpha"`, `HW_NAME "AlphaServer DS10L"`, `PAGE_SIZE 8192`, `MEMSIZE 524288` (4 GB) |
+| A5 | `time()` is UTC | not settled | `SYS$TIMEZONE_DIFFERENTIAL 0`, `SYS$TIMEZONE_NAME GMT`, `SYS$TIMEZONE_RULE GMT0BST^1,M3.5.0/01,M10.4.0/02`; `time()` = `$GETTIM` = `2026-11-11T21:00:01Z`, `differential is 0: … cannot tell UTC from local time`. In November GMT is UTC, so this is not settled until a run in summer time |
+| A6 | `RMI$_` items: declared, accepted, size | all 38; **`FRLIST` and `MODLIST` longword only** | The eight `CPU*` modes accept 8 bytes (`len 8: … iosb 0001 … retlen 8 wrote 8`). Every other item, `FRLIST` and `MODLIST` included, refuses 8 with `queue 00000014` (SS$_BADPARAM) and takes 4 (`retlen 4`) -- unlike x86 and I64, where those two are quadwords (findings 7). The agent's first self-test stopped on it: `FAIL  read: RMI$_FRLIST: status %X00000014`. Fixed by asking again with 4 bytes on BADPARAM; the stub has the Alpha behaviour under `STUB_RMI_MEM_LONG`, and `make check` runs the self-test with it, which fails without the fix with the same message (confirmed) |
+| A7 | CPU time by mode | `RMI$_CPU*` and `RMI$_MODES` both | `8 mode items accepted, sum of deltas 505 over 5.04 s = 100.2 units per second per active CPU`; `RMI$_MODES`: `37 bytes = 4 + 1 x 33`, `100.0 per s per active CPU`, `ok    RMI$_MODES is 10 ms ticks by mode, as documented` |
+| A8 | Counters and gauges among `RMI$_` items | as elsewhere | 5 s deltas: `FRLIST 501703 → 502625`, `MODLIST 640 → 614` (gauges); `FAULTS +1354`, `DIRIO +470`, `BUFIO +1332` (counters); `COM`, `CUR 1`, `LEF`, `HIB 17` states |
+| A9 | `JPI$_` items; processes visible | all accepted; all | every item accepted; `processes returned 25`, `NOPRIV 0`, `scan took 2.0 ms`. `TCPIP$FTP_1 9056` pagelets in the probe = SHOW SYSTEM `566` pages × 16 |
+| A10 | `$DEVICE_SCAN` and `DVI$_` items | yes | `11 disks found`, as SHOW DEVICE D; DKA0 `FREEBLOCKS 3607424` against SHOW DEVICE `3607408`; `DVI$_OPCNT` `_AXPBOX$DKA0: 74719 -> 74844 (+125)` over 5 s |
+| A11 | HTTP and TLS to the collector | yes, both | `ok    connected through getaddrinfo, AF_UNSPEC`, `HTTP/1.1 200 OK`, `{"partialSuccess":{}}`; TLS: `OpenSSL OpenSSL 3.0.22 25 Aug 2026`, `negotiated TLSv1.3, TLS_AES_128_GCM_SHA256`, 200 -- certificate not verified, no collector.crt on the Alpha |
+| A12 | Clock against the collector | **about 35 s slow** | `clock skew: ours minus collector's = -32 s`, then `-42 s` ten seconds later; SHOW TIME against the laptop, 21:02:17 against 21:02:38–21:03:05. No NTP process in SHOW SYSTEM. The agent: `CLOCK: this system is 37 s behind the collector`, once; `vmsotel_clock_skew_seconds -36` |
+| A13 | `build_vms` on Alpha | **yes**, after a fix | The first run took the VAX branch -- `VAX: no OpenSSL; vmsotel_tls.exe not built`, then `%LINK-W-USEUNDEF, undefined symbol RAND_bytes`, and the link check deleted the launcher. `if arch .ne. "VAX"` (from 3fc6bbe) compares integers, and "Alpha", "IA64" and "x86_64" all convert to 0, as "VAX" does, so it would have done the same on x86 and I64. With `.NES.`: `built: vmsotel.exe vmsotel_tls.exe vmsotel_launch.exe`, no messages |
+| A14 | The agent's self-test against SHOW | **yes** | `self-test read everything`. `alpha, page size 8192`; `SYI$_MEMSIZE 524288` = SHOW MEMORY `4.00` GB; `RMI$_FRLIST 501769` × 8192 = 3.82 GB = SHOW MEMORY `Free 3.82`; page file `124992` pages = SHOW MEMORY/FILES `976.50` MB; uptime `1 10:10:57` against SHOW SYSTEM `1 10:10:59` two seconds later; CPU `ticks per CPU-second: 100.0 (100 expected), 1 CPUs`; DKA500 `1110896` free = SHOW DEVICE D; `Processes: 23 visible, 0 refused` |
+| A15 | The agent's exports reach the collector, and the values are right | **yes**, plain HTTP | `build_vms RUN`: `done: 3 collections, 3 sent, 0 failed attempts, 0 dropped`. In Prometheus, `host_name="axpbox.issinoho.com"`, `host_arch="alpha"`, `host_type "AlphaServer DS10L"`, `os_version V8.4-2L2`: `system_memory_limit_bytes 4294967296` = free `4095041536` + used `194633728` + modified `5292032`; `system_uptime_seconds 124056`; CPU modes sum to 124058 s (idle `122786.7`) against that uptime on one CPU, so idle is counted once; DKA0 used + free = 12288000 × 512; DKA500 free `568778752` = 1110896 × 512. TLS run skipped: `needs collector.crt here` |
+
+Floating point: Alpha's C defaults to G_FLOAT, not IEEE. The agent uses
+`double` only for the self-test's printed percentages and rates, which
+came out right (A14), and the encoder does no floating point, so no
+`/FLOAT` qualifier was added.
+
+Not yet run on Alpha: anything unprivileged; a TLS export verified
+against collector.crt; `build_probes LOGS` and the logs; the agent
+detached (`VMSOTEL_START`) or with `process.*`; the kit (MAKE_KIT,
+PRODUCT INSTALL); `descrip.mms` (no MMS or MMK there).

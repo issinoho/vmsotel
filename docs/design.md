@@ -291,7 +291,10 @@ item_list_3 shape, but the return-length field it writes is 4 bytes
 (x86, `docs/findings.md`). The agent gives it a longword. The `CPU*`
 modes, `FRLIST` and `MODLIST` are quadwords; every other item used here
 is a longword and refuses an 8-byte buffer with `SS$_BADPARAM`, so the
-longword counters need the 2^32 widening above.
+longword counters need the 2^32 widening above. On Alpha `FRLIST` and
+`MODLIST` are longwords too and refuse 8 bytes the same way (findings
+A6), so the agent asks for them as a quadword and, refused, as a
+longword. They are gauges of pages, so a longword is enough.
 
 `user`, `kernel`, `interrupt` and `idle` are standard values. The others
 are VMS's own and are kept rather than folded into `system`, because the

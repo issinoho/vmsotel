@@ -9,7 +9,8 @@
  *   - $GETRMI as both machines showed it: the CPU modes, FRLIST and
  *     MODLIST take a quadword, every other item refuses one with
  *     SS$_BADPARAM and takes a longword, and the return length is
- *     written as a longword, not a word
+ *     written as a longword, not a word. With STUB_RMI_MEM_LONG set,
+ *     FRLIST and MODLIST refuse a quadword too, as on Alpha
  *   - CPU-mode counters as 10 ms ticks of two CPUs, from the real clock
  *   - a wildcard scan with a NOPRIV and a SUSPENDED process in it
  *   - disks: a mounted system disk, a shadow set's virtual unit and one
@@ -205,8 +206,8 @@ int sys$getrmi(unsigned int efn, unsigned int csidadr, unsigned int nodename,
         case RMI$_CPUIDLE:   v = ticks - ticks / 4 - ticks / 8 - ticks / 16; quad = 1; break;
         case RMI$_CPUINTSTK: case RMI$_CPUMPSYNCH: case RMI$_CPUSUPER:
         case RMI$_CPUCOMPAT: v = 0; quad = 1; break;
-        case RMI$_FRLIST:    v = 400000; quad = 1; break;
-        case RMI$_MODLIST:   v = 12000; quad = 1; break;
+        case RMI$_FRLIST:    v = 400000; quad = !getenv("STUB_RMI_MEM_LONG"); break;
+        case RMI$_MODLIST:   v = 12000; quad = !getenv("STUB_RMI_MEM_LONG"); break;
         case RMI$_FAULTS:    v = 53843179; break;
         case RMI$_PREADS:    v = 12801905; break;
         case RMI$_PREADIO:   v = 4839764; break;

@@ -1,0 +1,7 @@
+# Copy to tools/nodes.conf (not committed) and adjust.
+# The SSH key is $VMS_SSH_KEY, default ~/.ssh/vms_ed25519.
+# Only nodes with SSH key login belong here: x86 and I64 are run by hand
+# (the user pastes the output back), and the VAX has no SSH (tools/vax.py
+# in vms-site-config drives it over Telnet and FTP).
+# name  arch    host           port  user      vms_workdir                    sftp_workdir
+alpha   ALPHA   <alpha-host>   22    username  DISK$WORK:[USERNAME.VMSOTEL]   /DISK$WORK/USERNAME/vmsotel

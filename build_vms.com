@@ -139,7 +139,10 @@ $     if f$search("[.build]vmsotel.exe") .nes. "" then -
 $ else
 $     built = built + " vmsotel.exe"
 $ endif
-$ if arch .ne. "VAX" then goto openssl
+$! .NES., not .NE.: .NE. compares integers, and every ARCH_NAME --
+$! "Alpha", "IA64", "x86_64" -- converts to 0, as "VAX" does, so with
+$! .NE. every machine took the VAX branch below (found on Alpha).
+$ if arch .nes. "VAX" then goto openssl
 $!
 $! VAX: no OpenSSL, so no VMSOTEL_TLS.EXE. The launcher builds without
 $! it (launch.c, VO_LAUNCH_NO_OPENSSL), and with no /POINTER_SIZE:

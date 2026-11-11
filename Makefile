@@ -215,6 +215,8 @@ check: all
 	test "$$(grep -cxE '[A-Z0-9]{32}' $(B)/launch.out)" = 2
 	test "$$(sort -u $(B)/launch.out | wc -l)" = 2
 	$(B)/vmsotel_vmsstub --selftest
+	STUB_RMI_MEM_LONG=1 $(B)/vmsotel_vmsstub --selftest > $(B)/selftest_memlong.out
+	grep -q 'RMI\$$_FRLIST  *400000 ' $(B)/selftest_memlong.out
 	$(PYTHON) -I tools/fake_collector.py --agent-selftest $(B)/vmsotel $(B)/vmsotel_tls $(B)/vmsotel_vmsstub
 	for f in probes/vmsprobe.c probes/probe_*.c; do \
 	    $(CC) $(VAXISH) -c -o /dev/null $$f || exit 1; done

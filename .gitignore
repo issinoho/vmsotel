@@ -5,3 +5,4 @@ __pycache__/
 
 # Local secrets: never commit.
 tools/live_ftp_pass
+tools/nodes.conf
