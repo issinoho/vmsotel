@@ -6,18 +6,18 @@
 
 [![Release](https://img.shields.io/github/v/release/issinoho/vmsotel?label=release)](https://github.com/issinoho/vmsotel/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/issinoho/vmsotel/total?label=downloads)](https://github.com/issinoho/vmsotel/releases)
-![OpenVMS](https://img.shields.io/badge/OpenVMS-IA64%20%7C%20x86--64%20%7C%20VAX-blue)
+![OpenVMS](https://img.shields.io/badge/OpenVMS-IA64%20%7C%20x86--64%20%7C%20Alpha%20%7C%20VAX-blue)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 An [OpenTelemetry](https://opentelemetry.io) agent for **OpenVMS** (x86-64,
-Integrity/IA64, and VAX). It reads the system services and sends this system's metrics
+Integrity/IA64, Alpha and VAX). It reads the system services and sends this system's metrics
 and, if you ask, its operator log and audit journal to an OpenTelemetry
 collector over **OTLP/HTTP**, with or without TLS. From the collector they go
 wherever your other systems' telemetry goes: Prometheus, Grafana, Elastic,
 Datadog, Splunk or anything else that takes OTLP.
 
 It is written for OpenVMS from scratch in C99, with no C++ and nothing to
-port: VSI C on x86-64 and IA64, VSI's OpenSSL 3 kit for TLS, and Compaq C
+port: VSI C on x86-64, IA64 and Alpha, VSI's OpenSSL 3 kit for TLS, and Compaq C
 on VAX, where it is C89 and sends plain HTTP (there is no OpenSSL for VAX). It connects
 out to the collector, so nothing listens on the VMS system. Installed from the
 kit, it runs as an account of its own, never as SYSTEM, with only the
@@ -71,6 +71,7 @@ From the [latest release](https://github.com/issinoho/vmsotel/releases/latest):
 | `ISSINOHO-I64VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS IA64 (built and tested on V8.4-2L3) |
 | `ISSINOHO-X86VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS x86-64 (built and tested on E9.2-4) |
 | `ISSINOHO-VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS VAX (built and tested on V7.3) |
+| `ISSINOHO-AXPVMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS Alpha (built and tested on V8.4-2L2) |
 
 `SHA256SUMS` lists the SHA-256 of each kit. Requires VSI TCP/IP Services and
 VSI's SSL3 kit; on VAX, TCP/IP Services only (tested with V5.1). There is no
@@ -190,6 +191,12 @@ On a VAXserver 3900 (SIMH) on V7.3, the agent was built by `build_vms` and
 MMS, its self-test matched SHOW and MONITOR, it ran detached for an hour with
 processes and both logs, ran unprivileged, and its kit installed, started the
 agent as its own account at a (simulated) boot, and was removed.
+
+On an AlphaServer DS10L (Charon-AXP) on V8.4-2L2, the self-test matched SHOW
+and MONITOR, exports reached the collector with the right values, per-process
+CPU and memory equalled SHOW SYSTEM over an hour detached, it ran
+unprivileged, and its kit installed, started the agent as its own account,
+and was removed. There is no MMS on it, so only `build_vms` has built it.
 
 [`docs/findings.md`](docs/findings.md) has every result, with the evidence
 from each machine.
