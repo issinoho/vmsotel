@@ -96,8 +96,14 @@ not weaken that further.
 
 ## The machines
 
-You cannot reach x86 or I64. The workflow: develop and test on Linux,
-the user runs on OpenVMS and pastes the output back.
+Develop and test on Linux first. x86, I64 and the Alpha take SSH key
+login as IAIN and can be driven from here with `tools/vms.sh x86|ia64|alpha`
+(found 2026-11-12; until then the user ran everything on x86 and I64
+and pasted the output back). Their `tools/nodes.conf` work directory is
+a tree of this project's own, `USER$ROOT:[IAIN.VMSOTEL]` on x86 and
+I64, apart from any clone of the user's. Ask before anything
+system-wide (PRODUCT INSTALL, AUTHORIZE, SYSTARTUP) or anything that
+reaches the operators (REQUEST).
 
 | | x86-64 | Itanium rx2660 | VAX | Alpha |
 | --- | --- | --- | --- | --- |
