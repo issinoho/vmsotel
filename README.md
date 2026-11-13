@@ -194,9 +194,11 @@ agent as its own account at a (simulated) boot, and was removed.
 
 On an AlphaServer DS10L (Charon-AXP) on V8.4-2L2, the self-test matched SHOW
 and MONITOR, exports reached the collector with the right values, per-process
-CPU and memory equalled SHOW SYSTEM over an hour detached, it ran
-unprivileged, and its kit installed, started the agent as its own account,
-and was removed. There is no MMS on it, so only `build_vms` has built it.
+CPU and memory equalled SHOW SYSTEM over an hour detached, an operator-log
+record arrived with its own timestamp, TLS exports were verified against the
+collector's certificate, it ran unprivileged, and its kit installed, started
+the agent as its own account, and was removed. There is no MMS on it, so
+only `build_vms` has built it.
 
 [`docs/findings.md`](docs/findings.md) has every result, with the evidence
 from each machine.
@@ -241,6 +243,12 @@ That runs:
 
 With `opentelemetry-proto` installed (`PYTHON=/path/to/venv/bin/python make
 check`), every payload is parsed against the official schema.
+
+`tools/vms.sh` runs things on VMS machines that take SSH key login: copy
+`tools/nodes.conf.example` to `tools/nodes.conf` and fill in each node, then
+`tools/vms.sh NODE put FILE`, `tools/vms.sh NODE dcl 'COMMAND'`, or
+`tools/vms.sh NODE batch PROC.COM` for anything that runs for more than a
+minute.
 
 - [`docs/design.md`](docs/design.md): the design, and the reasons behind it
 - [`docs/findings.md`](docs/findings.md): what the probes and the agent showed on each machine
