@@ -197,8 +197,8 @@ and MONITOR, exports reached the collector with the right values, per-process
 CPU and memory equalled SHOW SYSTEM over an hour detached, an operator-log
 record arrived with its own timestamp, TLS exports were verified against the
 collector's certificate, it ran unprivileged, and its kit installed, started
-the agent as its own account, and was removed. There is no MMS on it, so
-only `build_vms` has built it.
+the agent as its own account, and was removed. `build_vms` and MMS both
+built it.
 
 [`docs/findings.md`](docs/findings.md) has every result, with the evidence
 from each machine.

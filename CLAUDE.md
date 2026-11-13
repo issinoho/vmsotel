@@ -134,7 +134,7 @@ there end early or never start the procedure, so run anything longer
 than a minute with `vms.sh alpha batch LOCAL.COM` (SUBMIT, then the
 batch log is fetched). IAIN has **every privilege by default** there:
 an unprivileged test must turn them off first. It has SSL3 3.0 and
-no MMS or MMK, so `descrip.mms` cannot run on it. The hass agent runs
+MMS V4.0-5; `descrip.mms` builds there. The hass agent runs
 on it too.
 
 The test collector runs in Docker on **docker-nuc, 192.168.0.218**
