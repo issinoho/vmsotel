@@ -11,10 +11,14 @@
 #
 # Collector 0.111.0 is the version vmsotel was tested against, and the
 # one docs/operations.md's debug-output script looks for.
+#
+# Image names are fully qualified (docker.io/...) so that Podman, which
+# will not guess a registry for a short name unless configured to, pulls
+# the same images Docker does; Docker treats both spellings the same.
 
 services:
   otelcol:
-    image: otel/opentelemetry-collector:0.111.0
+    image: docker.io/otel/opentelemetry-collector:0.111.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
       - ./otelcol.yaml:/etc/otelcol/config.yaml:ro
@@ -27,7 +31,7 @@ services:
     restart: unless-stopped
 
   prometheus:
-    image: prom/prometheus:v3.5.0
+    image: docker.io/prom/prometheus:v3.5.0
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -41,7 +45,7 @@ services:
     restart: unless-stopped
 
   loki:
-    image: grafana/loki:3.5.0
+    image: docker.io/grafana/loki:3.5.0
     command: ["-config.file=/etc/loki/loki.yaml"]
     volumes:
       - ./loki.yaml:/etc/loki/loki.yaml:ro
@@ -49,7 +53,7 @@ services:
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:12.0.0
+    image: docker.io/grafana/grafana:12.0.0
     volumes:
       - ./provisioning:/etc/grafana/provisioning:ro
       - ./dashboards:/var/lib/grafana/dashboards:ro
