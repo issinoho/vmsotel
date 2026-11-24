@@ -34,6 +34,7 @@
  * what a STOP/ID lost.
  */
 
+#include <ctype.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -57,6 +58,11 @@
 #define MAX_BACKOFF_MS  3600000ul       /* Retry-After is honoured up to here */
 #define SKEW_WARN_S     2               /* the probes' threshold */
 #define SKEW_CLEAR_S    1               /* and back within this to clear */
+#define SKEW_REPEAT_S   3600            /* warned again this often while off */
+#define SKEW_REFUSED_S  300             /* past this, backends refuse samples:
+                                           Prometheus takes nothing over 10
+                                           min ahead, nor older than its
+                                           out-of-order window (findings T7) */
 #define CONFIG_MAX      65536
 #define LOG_BATCH       64              /* log records read at a time */
 #define LOG_ROUNDS      64              /* batches read per collection */
@@ -169,6 +175,8 @@ typedef struct {
     vo_u64 fail_since_ms;       /* monotonic time of the first of them */
     int cpu_logged[VO_CPU_MODES];
     int skew_warned;
+    long skew_warned_abs;           /* |skew| when last warned */
+    unsigned long skew_warned_at;   /* and when, UTC seconds */
     int stopping;               /* the last attempt: nothing is retried */
     int procs_warned;
 
@@ -355,17 +363,29 @@ static int send_one(agent *a)
            threshold flickered (both machines, findings 44). */
         long lim = a->skew_warned ? SKEW_CLEAR_S : SKEW_WARN_S;
         int off = skew > lim || skew < -lim;
+        long mag = skew < 0 ? -skew : skew;
 
         a->stats.have_skew = 1;
         a->stats.skew_s = skew;
-        /* Once on the way out of tolerance and once on the way back, not
-           every minute. The timestamps are not corrected: the fix is NTP
-           on this node, and a silent correction would hide the need. */
-        if (off && !a->skew_warned)
+        /* On the way out of tolerance and once on the way back, not
+           every minute -- but again whenever the error has doubled, and
+           once an hour while it lasts. Warning once per episode left a
+           tester's log with "4 s ahead" while the clock drifted to 45
+           minutes and Prometheus refused a day of samples. The
+           timestamps are not corrected: the fix is NTP on this node,
+           and a silent correction would hide the need. */
+        if (off && (!a->skew_warned || mag >= 2 * a->skew_warned_abs ||
+                    sent_at - a->skew_warned_at >= SKEW_REPEAT_S)) {
             vo_log("CLOCK: this system is %ld s %s the collector; every "
-                   "timestamp is off by that much -- check NTP",
-                   skew < 0 ? -skew : skew, skew < 0 ? "behind" : "ahead of");
-        else if (!off && a->skew_warned)
+                   "timestamp is off by that much -- check NTP%s",
+                   mag, skew < 0 ? "behind" : "ahead of",
+                   mag >= SKEW_REFUSED_S
+                   ? " (a backend may refuse these samples although the "
+                     "collector accepts them, and they still count as sent)"
+                   : "");
+            a->skew_warned_abs = mag;
+            a->skew_warned_at = sent_at;
+        } else if (!off && a->skew_warned)
             vo_log("clock now within %d s of the collector", SKEW_CLEAR_S);
         a->skew_warned = off;
     }
@@ -455,6 +475,19 @@ static void finish(agent *a, unsigned long done)
                a->log_records_dropped);
 }
 
+/* An option's name, matched without regard to case. DCL lowercases an
+   unquoted argument, but not in a process whose parse style is
+   EXTENDED: there "VMSOTEL --SELFTEST", as the README has it, arrived
+   as typed and printed the usage text (a tester's x86 node). Only the
+   names: the values that follow (file names) keep their case. */
+static int is_opt(const char *arg, const char *name)
+{
+    while (*name != '\0' &&
+           tolower((unsigned char) *arg) == (unsigned char) *name)
+        arg++, name++;
+    return *arg == '\0' && *name == '\0';
+}
+
 int main(int argc, char **argv)
 {
     static agent a;
@@ -464,21 +497,21 @@ int main(int argc, char **argv)
     char err[400];
     int i;
 
-    if (argc == 2 && strcmp(argv[1], "--selftest") == 0)
+    if (argc == 2 && is_opt(argv[1], "--selftest"))
         return vo_source_selftest() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
-    if (argc == 2 && strcmp(argv[1], "--version") == 0) {
+    if (argc == 2 && is_opt(argv[1], "--version")) {
         printf("vmsotel %s\n", VO_VERSION);
         return EXIT_SUCCESS;
     }
 
     for (i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--cycles") == 0 && i + 1 < argc)
+        if (is_opt(argv[i], "--cycles") && i + 1 < argc)
             cycles = strtoul(argv[++i], NULL, 10);
-        else if (strcmp(argv[i], "--drain") == 0 && i + 1 < argc)
+        else if (is_opt(argv[i], "--drain") && i + 1 < argc)
             drain_s = strtoul(argv[++i], NULL, 10);
-        else if (strcmp(argv[i], "--log") == 0 && i + 1 < argc)
+        else if (is_opt(argv[i], "--log") && i + 1 < argc)
             log_path = argv[++i];
-        else if (strcmp(argv[i], "--stop-file") == 0 && i + 1 < argc)
+        else if (is_opt(argv[i], "--stop-file") && i + 1 < argc)
             stop_path = argv[++i];
         else if (config_path == NULL && argv[i][0] != '-')
             config_path = argv[i];

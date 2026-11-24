@@ -10,8 +10,8 @@ $! VO_VERSION in src/model/version.h. PRODUCT PACKAGE needs no
 $! privilege.
 $!
 $! The product description and text module are the templates in
-$! [.KIT] with @PRODUCER@, @BASE@, @PCSIVERSION@, @VERSION@ and @ARCH@
-$! filled in, and @NOTVAX@: nothing, or on VAX "-- not on VAX: ", which
+$! [.KIT] with @PRODUCER@, @BASE@, @PCSIVERSION@, @VERSION@, @ARCH@ and
+$! @SSL3MIN@ filled in, and @NOTVAX@: nothing, or on VAX "-- not on VAX: ", which
 $! makes the rest of that line a comment; README.VMS too. tools/check_kit.py, in make check, checks
 $! that every file the description names is gathered here.
 $!
@@ -113,6 +113,36 @@ $   i = i + 1
 $   goto ver_loop
 $ ver_done:
 $!
+$! ---- the SSL3 the kit needs: the one its images were linked against ----
+$! A linked image asks for SSL3$LIBSSL_SHR32's minor id or later
+$! (LESS/EQUAL), and that id is the kit's last number: SSL3 V3.0-22's
+$! image is ident "SSL 3.0-22", minor id 22. On an older SSL3 the kit
+$! installed, and VMSOTEL$CONFIGURE then failed with SHRIDMISMAT (a
+$! tester's node with V3.0-18, x86 images linked against 3.0-21). So
+$! the description's dependency says so, and PRODUCT INSTALL refuses an
+$! older one. Read from the installed image, which BUILD_VMS has just
+$! linked against.
+$ ssl3min = ""
+$ if arch .eqs. "VAX" then goto ssl3_done
+$ define/user sys$output [.BUILD]MAKE_KIT_SSL3.TMP
+$ analyze/image/select=ident sys$share:ssl3$libssl_shr32.exe
+$ open/read/error=ssl3_done s [.BUILD]MAKE_KIT_SSL3.TMP
+$ ssl3_loop:
+$   read/end_of_file=ssl3_read s line
+$   at = f$locate(q + "SSL 3.", line)
+$   if at .eq. f$length(line) then goto ssl3_loop
+$   ssl3min = "V" + f$element(0, q, f$extract(at + 5, 99, line))
+$ ssl3_read:
+$ close s
+$ delete/nolog [.BUILD]MAKE_KIT_SSL3.TMP;*
+$ ssl3_done:
+$ if arch .nes. "VAX" .and. f$locate("-", ssl3min) .eq. f$length(ssl3min)
+$ then
+$     say "MAKE_KIT: cannot read SSL3$LIBSSL_SHR32's ident (got """, ssl3min, """)"
+$     goto done
+$ endif
+$ if arch .nes. "VAX" then say "MAKE_KIT: needs SSL3 ''ssl3min' or later"
+$!
 $! ---- gather the files, flat: PRODUCT PACKAGE finds each by name ----
 $ out = "[.KIT_''arch']"
 $ mat = "[.KIT_''arch'.MAT]"
@@ -170,7 +200,7 @@ $ fill_line:
 $   read/end_of_file=fill_end fin line
 $   t = 0
 $ fill_token:
-$   name = f$element(t, ",", "PRODUCER,BASE,PCSIVERSION,VERSION,ARCH,NOTVAX")
+$   name = f$element(t, ",", "PRODUCER,BASE,PCSIVERSION,VERSION,ARCH,NOTVAX,SSL3MIN")
 $   if name .eqs. "," then goto fill_write
 $   tok = "@" + name + "@"
 $   if name .eqs. "PRODUCER" then val = producer
@@ -179,6 +209,7 @@ $   if name .eqs. "PCSIVERSION" then val = pcsiversion
 $   if name .eqs. "VERSION" then val = version
 $   if name .eqs. "ARCH" then val = archname
 $   if name .eqs. "NOTVAX" then val = notvax
+$   if name .eqs. "SSL3MIN" then val = ssl3min
 $ fill_again:
 $   at = f$locate(tok, line)
 $   if at .eq. f$length(line) then goto fill_next

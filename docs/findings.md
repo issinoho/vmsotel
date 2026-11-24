@@ -189,7 +189,9 @@ what it changes in the design.
 - **x86, 2c self-test: the HIB excess varies.** `cur 1 lef 13 hib 29`
   against MONITOR STATES `Hibernate 26`, `Local Event Flag Wait 13`,
   `Current Process 1` a few seconds later: three extra HIB this time,
-  two before. Still x86 only.
+  two before. Still x86 only. *Answered by T5: kernel threads. A
+  process with N of them counts N times, and with `MULTITHREAD 2`
+  x86 has SECURITY_SERVER's, ACME_SERVER's and MariaDB's second.*
 - **I64: `$GETRMI` state counts match MONITOR STATES exactly.** Second
   sample `LEF 15`, `HIB 26`, `CUR 1`; MONITOR STATES `15`, `26`, `1`;
   SHOW SYSTEM 15 LEF, 26 HIB, 1 CUR, 42 lines. Run 2 again: `CUR 1`,
@@ -345,3 +347,40 @@ came out right (A14), and the encoder does no floating point, so no
 
 Not yet run on Alpha: TLS refused without the certificate;
 an audit record sent (none was made in A17).
+
+## Field tests
+
+An outside tester ran the released v0.1.0 x86-64 kit on three nodes,
+17–24 November 2026: ESXI2 (E9.2-4) and ESXI1 (V9.2-3) under VMware
+ESXi 8.0.3, itself nested in KVM, and node1 (V9.2-3) directly on KVM,
+each as its own account with NETMBX and TMPMBX, on plain HTTP for a day
+and then on verified TLS for about 30 hours, to a Podman copy of
+`collector/grafana/`. What passed, on all three: the kit installed and
+ran; no memory growth or quota use; a clean stop through SHUTDOWN.COM
+and a start from SYSTARTUP, twice each -- the first boot start and
+SHUTDOWN stop of the kit seen on x86; refused certificates from an
+unknown CA, for the wrong address, expired and not yet valid, with
+nothing sent, while the right one connected; every TLS export in
+Prometheus, one a minute. On TLS the agent used about 0.3 s of CPU an
+export against 0.06 s on plain HTTP (a new `SSL_CTX` and a full
+handshake each time; not profiled). The rows are what they found that
+needed a change; the evidence is theirs, quoted from their reports,
+except where a row says it was checked here.
+
+| # | Question | Result | Evidence / notes |
+| --- | --- | --- | --- |
+| T1 | The kit says which SSL3 it needs | **no**, in v0.1.0 | node1, SSL3 V3.0-18: `PRODUCT INSTALL` worked, then `VMSOTEL$CONFIGURE` failed: `%DCL-W-ACTIMAGE, error activating image SSL3$LIBSSL_SHR32`, `-SYSTEM-F-SHRIDMISMAT, ident mismatch with shareable image`. The v0.1.0 x86 images ask `(LESS/EQUAL, 3., 21.)` of both SSL3 images; V3.0-18's have minor id 18, V3.0-22's 22. Here: x86's 13 November build asks 3.21, the Alpha's `minor id: %X'000016'` (22); both machines now have `SSL 3.0-22`. Fixed: MAKE_KIT reads the installed `SSL3$LIBSSL_SHR32`'s ident, which BUILD_VMS has just linked against, and writes `software VSI X86VMS SSL3 version minimum V3.0-22 ;` (x86, 2026-11-24: `MAKE_KIT: needs SSL3 V3.0-22 or later`, `PACKAGE operation completed successfully`, the relinked image `(LESS/EQUAL, 3., 22.)`). Not yet seen: PRODUCT INSTALL refusing an older SSL3 -- no machine here has one |
+| T2 | Configure fails cleanly when it cannot make a password | **partly**, in v0.1.0 | node1, as T1: the right outcome after six DCL errors from the procedure, `%DCL-E-OPENIN … VMSOTEL$CONFIGURE.TMP`, `%DCL-W-UNDFIL` twice, `%DELETE-W-SEARCHFAIL`, `%DCL-W-UNDSYM … \PASSWORD\`, `%DCL-E-INVIFNEST`. It opened the work file without checking that the image ran. Fixed: `password = ""` first, `$STATUS` checked, `OPEN/ERROR=`. Checked here (x86, 2026-11-24) with the block run alone against a missing image: only `%DCL-W-ACTIMAGE … -CLI-E-IMAGEFNF` and `VMSOTEL$CONFIGURE: could not make a password` |
+| T3 | `VMSOTEL --SELFTEST`, as the README had it, runs the self-test | **not** with PARSE_STYLE EXTENDED, in v0.1.0 | node1, SYSTEM `PARSE_STYLE_PERM EXTENDED`: the usage text; `VMSOTEL "--selftest"`: `self-test read everything`. The argument arrives as typed, and `strcmp` wanted lower case. Fixed: option names matched in either case. x86, 2026-11-24, after `SET PROCESS/PARSE_STYLE=EXTENDED`: `vmsotel --VERSION` gives `vmsotel 0.1.0`, `vmsotel --SELFTEST` `self-test read everything`; `make check` runs both spellings, and fails without the fix (confirmed) |
+| T4 | `system.uptime` matches SHOW SYSTEM | **only if the clock never moved after boot** | node1 boots 2 h slow (its VM clock is UTC, read as local time), and NTP steps it: `BOOTTIME 20-NOV-2026 07:17:50.00`, 2 h early; `system_uptime_seconds 40380` against `Uptime  0 09:12:17`; the same with the agent started from SYSTARTUP before the step (`7425` about 225 s after boot). ESXI2, after host suspends of 10 h 29 min in all: `200834` against `Uptime 1 21:18:30` (163110 s). ESXI1 after SET TIME 41 h forward: `195325` against `Uptime 0 12:50:59`; just before, `46319` against the same. SET TIME left BOOTTIME as it was. Documented (`docs/operations.md`, design "Counters"); no code change, as there is no unprivileged tick count |
+| T5 | What x86's extra HIB in `system.process.count` are (Surprises: "the HIB excess varies") | **kernel threads** | ESXI2, `MULTITHREAD 4`: `SECURITY_SERVER state=HIB kt_count=4`, `ACME_SERVER state=HIB kt_count=3`, every other process 1; MONITOR STATES `LEF 5 HIB 21 CUR 1` = 27 against the export's `hib 25 lef 6 cur 1`. ESXI1, `MULTITHREAD 2`: both `kt_count=2`, HIB MONITOR's plus 2. Checked here (x86, 2026-11-24, with WORLD): `MULTITHREAD 2`, `SECURITY_SERVER`, `ACME_SERVER` and `MARIADBD_3306` `kt_count=2`, `extra kernel threads 3`; the self-test then `com 1  cur 2  lef 17  hib 36` = 56 against `Processes: 53 visible`. So the state counts are of threads. I64's counts equal MONITOR (Surprises). Documented; the series kept as it is |
+| T6 | Samples sent before NTP steps a wrong boot clock reach the backend | **no**, and the agent counts them sent | node1, two cold boots: `CLOCK: this system is 7201 s behind the collector`, three exports stamped 2 h old; Prometheus `err="too old sample"` (out-of-order window 30 m), the collector `HTTP Status Code 500", "dropped_items": 44`; one sample after the step, `clock now within 1 s of the collector` and Prometheus takes it. `vmsotel_exports_total` `sent 80, failed 0` included the three. The collector answers before it exports, so the agent cannot know. Documented: "sent" means the collector took it |
+| T7 | The log keeps warning while the clock is out | **once only**, in v0.1.0 | ESXI1: `CLOCK: this system is 4 s ahead of the collector`, then nothing while it drifted to 2743 s ahead; from 10 min ahead Prometheus refused everything (`out of bounds: timestamp is too far in the future`, HTTP 400), about 19 h, while the agent stopped with `1593 collections, 1593 sent, 0 failed attempts`. 41 h slow: every export refused, one CLOCK line. Fixed: warned again whenever the error doubles and hourly while it lasts, and past 5 minutes the line says a backend may refuse the samples; `make check` has a drifting clock (4, 9, 20, 25, 400 s: warned at 4, 9, 20 and 400), which fails without the fix (confirmed) |
+| T8 | One node's refused samples leave other nodes' alone, in `collector/grafana/` | **no** | The collector's 5 s batch joined node1's too-old export to ESXI2's: `"dropped_items": 93`, about twice one node's 44, and ESXI2's `12:11:32` sample is the only gap in its hour. Prometheus refuses the whole request. Fixed: no batch processor -- each agent sends one request an interval anyway. The YAML checked for syntax only; not yet run on docker-nuc, which did not answer on 2026-11-24 |
+
+Also from the same round: under Podman 4.9.3 on Ubuntu 24.04,
+`podman-restart.service` starts only `restart-policy=always`
+containers, so the stack's `unless-stopped` left it down after a
+reboot; `compose.yaml` now says `always` (with it, the stack was back 8 s
+after the host's reboot on their machine). Not changed yet: `TYPE/TAIL`
+cannot read `VMSOTEL.LOG` (plain TYPE can); the TLS CPU above.

@@ -10,7 +10,9 @@ product @PRODUCER@ @BASE@ VMSOTEL @PCSIVERSION@ full ;
     -- images (SSL3$LIBSSL_SHR32, SSL3$LIBCRYPTO_SHR32). VAX has no
     -- OpenSSL: on VAX, MAKE_KIT.COM turns each line that starts with
     -- the NOTVAX token into a comment, and elsewhere drops the token.
-    @NOTVAX@software VSI @BASE@ SSL3 ;
+    -- SSL3MIN is the SSL3 the images were linked against: older ones
+    -- refuse to activate them (SHRIDMISMAT), so PCSI refuses them first.
+    @NOTVAX@software VSI @BASE@ SSL3 version minimum @SSL3MIN@ ;
 
     information RELEASE_NOTES phase after with helptext ;
 

@@ -20,7 +20,8 @@ import re
 import sys
 
 IMAGES = {"VMSOTEL.EXE", "VMSOTEL_TLS.EXE", "VMSOTEL_LAUNCH.EXE"}
-TOKENS = {"PRODUCER", "BASE", "PCSIVERSION", "VERSION", "ARCH", "NOTVAX"}
+TOKENS = {"PRODUCER", "BASE", "PCSIVERSION", "VERSION", "ARCH", "NOTVAX",
+          "SSL3MIN"}
 
 
 def repo_path(vms_dir, name):
@@ -92,7 +93,7 @@ def main():
 
     for name, text in (("description", pdf), ("text module", ptf),
                        ("README.VMS", open("kit/readme.vms").read())):
-        for t in set(re.findall(r"@([A-Z]+)@", text)) - TOKENS:
+        for t in set(re.findall(r"@([A-Z0-9]+)@", text)) - TOKENS:
             fails.append(f"the {name} uses @{t}@, which make_kit does not "
                          "fill in")
     pdf_product = re.search(r"^product (.*?) full ;", pdf, re.M)

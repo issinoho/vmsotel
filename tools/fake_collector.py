@@ -478,6 +478,18 @@ def agent_selftest(plain, tls, vmsstub=None):
           rc == 0 and out.count("CLOCK: this system is") == 1 and
           out.count("clock now within 1 s of the collector") == 1, out)
 
+    # A clock drifting away: warned again each time the error doubles
+    # (4, then 9 and 20, not 25), so the log does not stop at the first
+    # few seconds while the error grows to minutes (a tester's x86 node).
+    # Past 5 minutes the warning says a backend may refuse the samples.
+    reset(offsets=[4, 9, 20, 25, 400])
+    rc, out = run(plain, conf(port), 5)
+    check("clock drifting away: warned again as the error doubles",
+          rc == 0 and out.count("CLOCK: this system is") == 4 and
+          "CLOCK: this system is 25 s" not in out and
+          out.count("may refuse these samples") == 1 and
+          "CLOCK: this system is 400 s behind" in out, out)
+
     reset()
     rc, out = run(plain, conf(port, "max_payload = 4096\n"), 1, drain=1)
     check("payload over max_payload: dropped with the size it needs",

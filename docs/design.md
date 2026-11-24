@@ -183,6 +183,14 @@ make every counter look reset. The same applies to `JPI$_LOGINTIM`.
 A start time an hour out does not corrupt rates, but `system.uptime`
 would be wrong.
 
+Started at boot, it is still wrong whenever the clock moved after boot:
+a node that booted with its clock hours out and was then set right by
+NTP or SET TIME, or a virtual machine whose host was suspended. BOOTTIME
+was written by the clock as it was, and a step does not rewrite it; SHOW
+SYSTEM's Uptime counts running time, and stays right (a tester's x86
+nodes, findings T4). Only the tick-based uptime above would agree in
+every case; until there is one, `docs/operations.md` says so.
+
 **Longword counters wrap.** A 32-bit count of 10 ms ticks wraps after
 497 days, and if the system-wide CPU totals sum over all CPUs, a
 four-CPU system wraps after about 124 days of uptime. VMS systems run that long
@@ -232,7 +240,7 @@ time; widened counters carry their own (see Counters).
 | `system.paging.faults` | counter | {fault} | `RMI$_FAULTS`, `RMI$_PREADS` | `system.paging.fault.type` = major (page reads), minor (the rest, with the later of the two start times) |
 | `system.paging.operations` | counter | {operation} | `RMI$_PREADIO`, `RMI$_PWRITIO` | `system.paging.direction` = in, out |
 | `system.paging.usage` | updowncounter | By | `SYI$_PAGEFILE_PAGE`, `SYI$_PAGEFILE_FREE` | `system.paging.state` = used, free. Both longwords, in pages, on both machines. FREE is space never written: on x86 SHOW MEMORY/FILES showed all 233216 pages free with 61612 committed, so `used` is not "committed". Left out when no page file is installed |
-| `system.process.count` | updowncounter | {process} | `RMI$_COM`, `LEF`, `HIB`, … | one series per VMS state, each with `process.state` (semconv: COM, COMO, CUR → running; SUSP, SUSPO → stopped; the rest → sleeping) and `openvms.process.state` (the VMS name, lower-cased), so a stock dashboard sums by the first and an administrator reads the second. On I64 the raw counts equal MONITOR STATES; on x86 they show one more CUR and two more HIB. `PROCS` is one short of the total on both, so it is not used. *(open: what x86's extras are)* |
+| `system.process.count` | updowncounter | {process} | `RMI$_COM`, `LEF`, `HIB`, … | one series per VMS state, each with `process.state` (semconv: COM, COMO, CUR → running; SUSP, SUSPO → stopped; the rest → sleeping) and `openvms.process.state` (the VMS name, lower-cased), so a stock dashboard sums by the first and an administrator reads the second. On I64 the raw counts equal MONITOR STATES; on x86 they show one more CUR and two or three more HIB. `PROCS` is one short of the total on both, so it is not used. The x86 extras are kernel threads: the state counts are of threads, and with `MULTITHREAD` above 1 a process with N kernel threads counts N times -- SECURITY_SERVER and ACME_SERVER on every x86 node, and threaded programs such as MariaDB (findings T5). So the series is kept as it is, threads by state, and documented; a count of processes would come from the `$GETJPI` scan, which needs WORLD to see them all. |
 | `system.uptime` | gauge | s | `SYI$_BOOTTIME` | whole seconds, as a double |
 | `system.filesystem.usage` | updowncounter | By | `DVI$_FREEBLOCKS`, `DVI$_MAXBLOCK` | per mounted disk; 512-byte blocks; `system.device`, `system.filesystem.mountpoint` = the logical volume name (`DISK$X86SYS`), `system.filesystem.state` = used, free |
 | `system.disk.operations` | counter | {operation} | `DVI$_OPCNT` | per disk, widened per device name; no read/write split exists, so no `disk.io.direction` |

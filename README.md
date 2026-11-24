@@ -74,7 +74,10 @@ From the [latest release](https://github.com/issinoho/vmsotel/releases/latest):
 | `ISSINOHO-AXPVMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS Alpha (built and tested on V8.4-2L2) |
 
 `SHA256SUMS` lists the SHA-256 of each kit. Requires VSI TCP/IP Services and
-VSI's SSL3 kit; on VAX, TCP/IP Services only (tested with V5.1). There is no
+VSI's SSL3 kit, no older than the one the kit was built against: V3.0-21 for
+the v0.1.0 x86-64 kit, V3.0-22 for the Alpha's. On an older SSL3 the v0.1.0 kits
+install, but `VMSOTEL$CONFIGURE` fails with `SHRIDMISMAT`; later kits name the
+version, and `PRODUCT INSTALL` refuses an older one. On VAX, TCP/IP Services only (tested with V5.1). There is no
 OpenSSL for VAX, so the agent sends plain HTTP there, without TLS. VAX's PCSI
 has no `/OPTIONS`, so `PRODUCT INSTALL` asks before it goes ahead.
 
@@ -143,8 +146,12 @@ SHOW and MONITOR:
 
 ```dcl
 $ VMSOTEL := $VMSOTEL$ROOT:[BIN]VMSOTEL.EXE
-$ VMSOTEL --SELFTEST
+$ VMSOTEL "--selftest"
 ```
+
+Quoted, because v0.1.0 takes its options in lower case only, and a process
+with `SET PROCESS/PARSE_STYLE=EXTENDED` passes them as typed. Later versions
+take either.
 
 [`docs/operations.md`](docs/operations.md) explains every line the agent logs,
 and how to check its numbers against MONITOR.

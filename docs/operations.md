@@ -150,6 +150,21 @@ right when it starts at boot; started later, across a summer-time
 change since boot, it is an hour out -- which is what the test runs,
 started by hand after 25 October, showed.
 
+`system.uptime` is now less `SYI$_BOOTTIME`, wall-clock time since a
+boot stamp; SHOW SYSTEM's Uptime counts the time the system has run.
+They part whenever the clock moved after boot, and stay apart until the
+next boot (a tester's x86 nodes, findings T4):
+
+- a node that booted with its clock wrong and was set right later --
+  NTP stepping it, or SET TIME -- is out by the correction, even with
+  the agent started at boot: BOOTTIME was written by the wrong clock,
+  and a step does not change it;
+- a virtual machine paused or its host suspended is ahead by the pause,
+  once its clock is brought forward.
+
+There is no unprivileged count of ticks since boot to use instead
+(`probes/probe_syi.c`).
+
 The agent will not start if its clock check fails: `time()` must agree
 with the system time less `SYS$TIMEZONE_DIFFERENTIAL` (from the system
 logical name table) to within 2 s. If it does not, every timestamp would
@@ -183,7 +198,7 @@ process ends without writing to `VMSOTEL.LOG`.
 | `vmsotel 0.1.0 starting: http://…, every 60 s, queue 10` | started |
 | `to stop: create …VMSOTEL.STOP` | where the stop file goes |
 | `not starting: clock check failed: …` | time zone misconfigured; nothing sent |
-| `CLOCK: this system is N s behind the collector …` | timestamps are off by N s (more than 2); fix NTP. Logged once; `clock now within 1 s of the collector` when it recovers |
+| `CLOCK: this system is N s behind the collector …` | timestamps are off by N s (more than 2); fix NTP. Logged when it starts, again whenever N has doubled, and hourly while it lasts; `clock now within 1 s of the collector` when it recovers. Past 5 minutes it adds that a backend may refuse the samples: see "Sent" below |
 | `cpu mode interrupt is unusable (…); not reported` | x86: that counter reads as negative there; expected, at start |
 | `export failed: …; retrying in N ms; M waiting` | the collector did not take it; it is kept and retried |
 | `export sent again after N failed attempts over S s` | the outage is over; what waited is being sent |
@@ -207,6 +222,19 @@ process ends without writing to `VMSOTEL.LOG`.
 The same counts go to the collector as `vmsotel.exports`,
 `vmsotel.queue.length`, `vmsotel.collection.duration` and
 `vmsotel.clock.skew`.
+
+**Sent** means the collector accepted the export (HTTP 200), not that
+the backend behind it stored it: the collector answers first and
+exports later. A backend can refuse what the collector took, and the
+agent cannot see it. The usual cause is the node's clock. Prometheus
+refuses samples more than 10 minutes ahead (`out of bounds`), and
+samples older than its out-of-order window (`too old sample`; 30
+minutes in `collector/grafana/`) -- so a node booted with its clock
+hours out loses every sample until NTP steps it, and a node drifting
+ahead loses everything past 10 minutes, while its log counts them sent
+(a tester's x86 nodes, findings T6, T7). `vmsotel.clock.skew` goes in
+the same refused exports, so the dashboard cannot show it either: the
+agent's log can, with its CLOCK lines.
 
 ## Dashboards
 
@@ -284,7 +312,7 @@ docker logs --since 5m $(docker ps -q --filter ancestor=otel/opentelemetry-colle
 | --- | --- | --- |
 | Free List Size | `system.memory.usage` `free` | bytes ÷ 8192 = pages |
 | Mod List Size | `system.memory.usage` `modified` | bytes ÷ 8192 = pages |
-| Process states (LEF, HIB, COM, CUR) | `system.process.count` by `openvms.process.state` | equal (x86 shows 2–3 extra HIB; known) |
+| Process states (LEF, HIB, COM, CUR) | `system.process.count` by `openvms.process.state` | equal on I64; on x86 more by the extra kernel threads: the counts are of threads, and a process with N kernel threads (`F$GETJPI(pid,"KT_COUNT")`; with `MULTITHREAD` above 1, SECURITY_SERVER, ACME_SERVER and threaded programs) counts N times (findings T5) |
 | Direct I/O Rate | `openvms.io.direct` | difference between two exports ÷ the interval |
 | Buffered I/O Rate | `openvms.io.buffered` | the same |
 | Page Fault Rate | `system.paging.faults`, major + minor | the same |

@@ -167,14 +167,21 @@ $     set protection=('old_prot')/default
 $     exit 44
 $ endif
 $! A password nobody needs: 32 random letters and digits from OpenSSL.
+$! If the image cannot be activated (an SSL3 older than the one it was
+$! linked against: SHRIDMISMAT), it writes no file; without the checks
+$! below DCL then printed six errors of its own before this message.
 $ launch := $VMSOTEL$ROOT:[BIN]VMSOTEL_LAUNCH.EXE
+$ password = ""
 $ define/user sys$output 'work'
 $ launch --password
-$ open/read f 'work'
+$ pw_status = $status
+$ if .not. pw_status then goto pw_check
+$ open/read/error=pw_check f 'work'
 $ read/end_of_file=pw_read f password
 $ pw_read:
 $ close f
-$ delete/erase/nolog 'work';*
+$ pw_check:
+$ if f$search(work) .nes. "" then delete/erase/nolog 'work';*
 $ if f$length(password) .ne. 32
 $ then
 $     say "VMSOTEL$CONFIGURE: could not make a password (VMSOTEL_LAUNCH.EXE --password)"

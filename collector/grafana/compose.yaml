@@ -9,6 +9,12 @@
 # plain, 4319 TLS), so stop that one first. The TLS receiver needs
 # ../collector.crt and ../collector.key: run ../make-cert.sh once.
 #
+# restart: always, not unless-stopped, so the stack comes back after the
+# host reboots under Podman too: Ubuntu 24.04's podman-restart.service
+# (Podman 4.9.3) starts only restart-policy=always containers, and a
+# tester's unless-stopped stack stayed down; with always it was up 8 s
+# after the reboot. Docker treats the two alike at boot.
+#
 # Collector 0.111.0 is the version vmsotel was tested against, and the
 # one docs/operations.md's debug-output script looks for.
 #
@@ -28,7 +34,7 @@ services:
       - "4318:4318"
       - "4319:4319"
     depends_on: [prometheus, loki]
-    restart: unless-stopped
+    restart: always
 
   prometheus:
     image: docker.io/prom/prometheus:v3.5.0
@@ -42,7 +48,7 @@ services:
       - prometheus-data:/prometheus
     ports:
       - "9090:9090"
-    restart: unless-stopped
+    restart: always
 
   loki:
     image: docker.io/grafana/loki:3.5.0
@@ -50,7 +56,7 @@ services:
     volumes:
       - ./loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
-    restart: unless-stopped
+    restart: always
 
   grafana:
     image: docker.io/grafana/grafana:12.0.0
@@ -62,7 +68,7 @@ services:
       # Not 3000: docker-nuc already serves that (nghttpx).
       - "${GRAFANA_PORT:-3300}:3000"
     depends_on: [prometheus, loki]
-    restart: unless-stopped
+    restart: always
 
 volumes:
   prometheus-data:

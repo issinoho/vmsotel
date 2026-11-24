@@ -18,8 +18,10 @@ collector intact, the agent ran detached and stopped cleanly,
 `descrip.mms` built both images (findings 42), and TLS exports went
 through verified against the collector's certificate and were refused
 without it (findings 43), and a clock set back 2 minutes did not
-stall it (findings 44). Not yet run there: a start from
-SYSTARTUP_VMS.COM. `make check` also checks that the three build files agree.
+stall it (findings 44). A start from SYSTARTUP_VMS.COM has run on
+AXPBOX (findings A21), and on an outside tester's three x86 nodes with
+the released kit, along with a stop through SHUTDOWN.COM (findings,
+"Field tests"). `make check` also checks that the three build files agree.
 
 Phase 2, per-process metrics for processes chosen by name or user
 (`process.name`, `process.user`; WORLD), has run on both machines: the
