@@ -68,16 +68,18 @@ From the [latest release](https://github.com/issinoho/vmsotel/releases/latest):
 
 | Kit | Platform |
 |---|---|
-| `ISSINOHO-I64VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS IA64 (built and tested on V8.4-2L3) |
-| `ISSINOHO-X86VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS x86-64 (built and tested on E9.2-4) |
-| `ISSINOHO-VMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS VAX (built and tested on V7.3) |
-| `ISSINOHO-AXPVMS-VMSOTEL-V0001-0-1.PCSI` | OpenVMS Alpha (built and tested on V8.4-2L2) |
+| `ISSINOHO-X86VMS-VMSOTEL-V0001-1-1.PCSI` | OpenVMS x86-64 (built and tested on E9.2-4) |
+| `ISSINOHO-AXPVMS-VMSOTEL-V0001-1-1.PCSI` | OpenVMS Alpha (built and tested on V8.4-2L2) |
+| `ISSINOHO-VMS-VMSOTEL-V0001-1-1.PCSI` | OpenVMS VAX (built and tested on V7.3) |
+
+The IA64 kit for 0.1.1 is to follow; until then, [0.1.0's](https://github.com/issinoho/vmsotel/releases/tag/v0.1.0)
+`ISSINOHO-I64VMS-VMSOTEL-V0001-0-1.PCSI` (built and tested on V8.4-2L3).
 
 `SHA256SUMS` lists the SHA-256 of each kit. Requires VSI TCP/IP Services and
-VSI's SSL3 kit, no older than the one the kit was built against: V3.0-21 for
-the v0.1.0 x86-64 kit, V3.0-22 for the Alpha's. On an older SSL3 the v0.1.0 kits
-install, but `VMSOTEL$CONFIGURE` fails with `SHRIDMISMAT`; later kits name the
-version, and `PRODUCT INSTALL` refuses an older one. On VAX, TCP/IP Services only (tested with V5.1). There is no
+VSI's SSL3 kit, no older than the one the kit was built against: V3.0-22 for
+0.1.1. The kit says so, and `PRODUCT INSTALL` refuses an older SSL3. (The
+0.1.0 kits did not: on an older SSL3 they installed, and `VMSOTEL$CONFIGURE`
+then failed with `SHRIDMISMAT`.) On VAX, TCP/IP Services only (tested with V5.1). There is no
 OpenSSL for VAX, so the agent sends plain HTTP there, without TLS. VAX's PCSI
 has no `/OPTIONS`, so `PRODUCT INSTALL` asks before it goes ahead.
 
@@ -87,7 +89,7 @@ A kit downloaded through a non-VMS system loses its record format. As SYSTEM,
 restore it and install:
 
 ```dcl
-$ SET FILE/ATTRIBUTE=(RFM:FIX,LRL:8192,MRS:8192,RAT:NONE) ISSINOHO-*-VMSOTEL-V0001-0-1.PCSI
+$ SET FILE/ATTRIBUTE=(RFM:FIX,LRL:8192,MRS:8192,RAT:NONE) ISSINOHO-*-VMSOTEL-V0001-1-1.PCSI
 $ PRODUCT INSTALL VMSOTEL /PRODUCER=ISSINOHO /SOURCE=dev:[dir]
 ```
 
@@ -106,6 +108,23 @@ above `MAXSYSGROUP`, that no other account uses (it checks). The account
 cannot log in by any route, but the agent runs as it. Its authorized
 privileges are NETMBX and TMPMBX, plus WORLD and READALL only if the
 configuration asks for processes or logs. Run it again after turning those on.
+
+### Upgrading
+
+Over an installed version, as SYSTEM: stop the agent, install, run the
+configuration again (it keeps the account, `VMSOTEL.CONF` and the
+start-at-boot choice, and sets the new files' protections), and start it as
+boot would:
+
+```dcl
+$ @VMSOTEL$ROOT:[COM]VMSOTEL_STOP
+$ PRODUCT INSTALL VMSOTEL /PRODUCER=ISSINOHO /SOURCE=dev:[dir]
+$ @VMSOTEL$ROOT:[COM]VMSOTEL$CONFIGURE VMSOTEL "" YES
+$ @SYS$STARTUP:VMSOTEL$STARTUP
+```
+
+PCSI replaces the old version (`%PCSI-I-FORCEDUPG, … implicitly removed`).
+`YES` is for an agent that starts at boot; give `NO` if it does not.
 
 ## Using it
 
@@ -149,9 +168,9 @@ $ VMSOTEL := $VMSOTEL$ROOT:[BIN]VMSOTEL.EXE
 $ VMSOTEL "--selftest"
 ```
 
-Quoted, because v0.1.0 takes its options in lower case only, and a process
-with `SET PROCESS/PARSE_STYLE=EXTENDED` passes them as typed. Later versions
-take either.
+Quoted, so it works on 0.1.0 too: that version takes its options in lower
+case only, and a process with `SET PROCESS/PARSE_STYLE=EXTENDED` passes them
+as typed. From 0.1.1 either works.
 
 [`docs/operations.md`](docs/operations.md) explains every line the agent logs,
 and how to check its numbers against MONITOR.

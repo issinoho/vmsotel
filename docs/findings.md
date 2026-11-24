@@ -384,3 +384,22 @@ containers, so the stack's `unless-stopped` left it down after a
 reboot; `compose.yaml` now says `always` (with it, the stack was back 8 s
 after the host's reboot on their machine). Not changed yet: `TYPE/TAIL`
 cannot read `VMSOTEL.LOG` (plain TYPE can); the TLS CPU above.
+
+**0.1.1 over 0.1.0, in place** (2026-11-24, kits from bad0d53 built in a
+clean `git archive` tree on each machine). x86, the Alpha and VAX each
+ran the README's upgrade: `VMSOTEL_STOP`, then `PRODUCT INSTALL`
+(`%PCSI-I-FORCEDUPG, product ISSINOHO X86VMS VMSOTEL V0.1-0 implicitly
+removed`; the same for AXPVMS and VMS), then `VMSOTEL$CONFIGURE VMSOTEL ""
+YES` (`Account VMSOTEL exists ([350,1])`, `start at boot: YES`; VAX
+`[360,1]`), then `VMSOTEL$STARTUP`: `vmsotel_launch: process 0004582E
+started as VMSOTEL` (x86), `000024C1` (Alpha), `00005E95` (VAX). The old
+agents' last lines: `stopped: 16549 collections, 16890 sent, 406 failed
+attempts, 4 dropped` (x86), `5017 … 5104 sent, 195 failed attempts, 2
+dropped` (Alpha), `13323 … 13323 sent, 273 failed attempts, 0 dropped`
+(VAX). The new ones: `vmsotel 0.1.1 starting: https://192.168.0.218:4319`
+with `TLS through OpenSSL 3.0.22 25 Aug 2026` on x86 and the Alpha, and
+`http://…:4318` on VAX. At 23:03:58 Prometheus had `service_version
+0.1.1` from x86vms, axpbox and vaxvms, each with samples in the last
+minute and `vmsotel_exports_total` failed 0, dropped 0. PCSI on x86 left
+its recovery directory, `DISK$X86SYS:[PCSI$UNDO_001]`. I64 was down, so
+its 0.1.1 kit is not built yet.
