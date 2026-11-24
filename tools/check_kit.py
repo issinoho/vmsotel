@@ -21,7 +21,7 @@ import sys
 
 IMAGES = {"VMSOTEL.EXE", "VMSOTEL_TLS.EXE", "VMSOTEL_LAUNCH.EXE"}
 TOKENS = {"PRODUCER", "BASE", "PCSIVERSION", "VERSION", "ARCH", "NOTVAX",
-          "SSL3MIN"}
+          "SSL3MIN", "NEEDS"}
 
 
 def repo_path(vms_dir, name):

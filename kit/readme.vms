@@ -8,11 +8,7 @@ OTLP/HTTP, with or without TLS. It connects out to the collector;
 nothing listens on this system. It runs as its own account, never as
 SYSTEM.
 
-Requires: OpenVMS x86-64 (tested on E9.2-4) or Integrity (tested on
-V8.4-2L3), VSI TCP/IP Services, and VSI's SSL3 kit, @SSL3MIN@ or
-later (the one this kit was built against); or OpenVMS VAX
-(tested on V7.3) with TCP/IP Services, which has no OpenSSL, so no
-TLS there.
+Requires: @NEEDS@.
 
 Setting up (as SYSTEM)
 ----------------------

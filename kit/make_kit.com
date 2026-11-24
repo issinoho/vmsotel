@@ -10,8 +10,8 @@ $! VO_VERSION in src/model/version.h. PRODUCT PACKAGE needs no
 $! privilege.
 $!
 $! The product description and text module are the templates in
-$! [.KIT] with @PRODUCER@, @BASE@, @PCSIVERSION@, @VERSION@, @ARCH@ and
-$! @SSL3MIN@ filled in, and @NOTVAX@: nothing, or on VAX "-- not on VAX: ", which
+$! [.KIT] with @PRODUCER@, @BASE@, @PCSIVERSION@, @VERSION@, @ARCH@,
+$! @SSL3MIN@ and @NEEDS@ filled in, and @NOTVAX@: nothing, or on VAX "-- not on VAX: ", which
 $! makes the rest of that line a comment; README.VMS too. tools/check_kit.py, in make check, checks
 $! that every file the description names is gathered here.
 $!
@@ -142,6 +142,9 @@ $     say "MAKE_KIT: cannot read SSL3$LIBSSL_SHR32's ident (got """, ssl3min, ""
 $     goto done
 $ endif
 $ if arch .nes. "VAX" then say "MAKE_KIT: needs SSL3 ''ssl3min' or later"
+$! README.VMS's requirements, for this architecture alone.
+$ needs = "VSI TCP/IP Services and VSI SSL3 " + ssl3min + " or later"
+$ if arch .eqs. "VAX" then needs = "TCP/IP Services; VAX has no OpenSSL, so no TLS"
 $!
 $! ---- gather the files, flat: PRODUCT PACKAGE finds each by name ----
 $ out = "[.KIT_''arch']"
@@ -200,7 +203,7 @@ $ fill_line:
 $   read/end_of_file=fill_end fin line
 $   t = 0
 $ fill_token:
-$   name = f$element(t, ",", "PRODUCER,BASE,PCSIVERSION,VERSION,ARCH,NOTVAX,SSL3MIN")
+$   name = f$element(t, ",", "PRODUCER,BASE,PCSIVERSION,VERSION,ARCH,NOTVAX,SSL3MIN,NEEDS")
 $   if name .eqs. "," then goto fill_write
 $   tok = "@" + name + "@"
 $   if name .eqs. "PRODUCER" then val = producer
@@ -210,6 +213,7 @@ $   if name .eqs. "VERSION" then val = version
 $   if name .eqs. "ARCH" then val = archname
 $   if name .eqs. "NOTVAX" then val = notvax
 $   if name .eqs. "SSL3MIN" then val = ssl3min
+$   if name .eqs. "NEEDS" then val = needs
 $ fill_again:
 $   at = f$locate(tok, line)
 $   if at .eq. f$length(line) then goto fill_next
