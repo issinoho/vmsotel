@@ -192,9 +192,9 @@ check: all
 	$(PYTHON) -I tools/fake_collector.py --validate $(GOLDEN)
 	python3 -I tools/check_build_files.py Makefile build_vms.com descrip.mms
 	python3 -I tools/check_kit.py
-	$(B)/vmsotel --version | grep -qx 'vmsotel 0.1.0'
+	$(B)/vmsotel --version | grep -qx 'vmsotel 0.1.1'
 	# Option names in any case: EXTENDED parse style passes them as typed.
-	$(B)/vmsotel --VERSION | grep -qx 'vmsotel 0.1.0'
+	$(B)/vmsotel --VERSION | grep -qx 'vmsotel 0.1.1'
 	$(B)/vmsotel_vmsstub --SelfTest > $(B)/selftest_case.out
 	$(B)/vmsotel_launch_vmsstub VMSOTEL DKA0:[X.COM]R.COM DKA0:[X.LOG]R.LOG vmsotel > $(B)/launch.out
 	grep -q 'as persona 7, input DKA0:\[X.COM\]R.COM, output DKA0:\[X.LOG\]R.LOG, error DKA0:\[X.LOG\]R.LOG, name VMSOTEL, priority 4, flags 0x200, quotas 1=100 3=200000 12=500 6=100 2=100 5=100 7=300000 9=20 10=4096 11=16384 13=32768$$' $(B)/launch.out

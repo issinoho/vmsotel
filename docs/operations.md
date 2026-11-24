@@ -195,7 +195,7 @@ process ends without writing to `VMSOTEL.LOG`.
 
 | Line | Meaning |
 | --- | --- |
-| `vmsotel 0.1.0 starting: http://…, every 60 s, queue 10` | started |
+| `vmsotel 0.1.1 starting: http://…, every 60 s, queue 10` | started |
 | `to stop: create …VMSOTEL.STOP` | where the stop file goes |
 | `not starting: clock check failed: …` | time zone misconfigured; nothing sent |
 | `CLOCK: this system is N s behind the collector …` | timestamps are off by N s (more than 2); fix NTP. Logged when it starts, again whenever N has doubled, and hourly while it lasts; `clock now within 1 s of the collector` when it recovers. Past 5 minutes it adds that a backend may refuse the samples: see "Sent" below |

@@ -96,7 +96,7 @@ void fixture_minimal(vo_raw *r)
 void fixture_resource(vo_resource *res)
 {
     memset(res, 0, sizeof *res);
-    res->service_version = "0.1.0";
+    res->service_version = "0.1.1";
     res->host_name = "x86vms.issinoho.com";
     res->host_arch = "amd64";
     res->host_type = "QEMU Standard PC (Q35 + ICH9, 2009)";
